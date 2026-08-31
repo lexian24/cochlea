@@ -79,3 +79,42 @@ than staying quiet about a weaker guarantee.
 field. It would make every download fail as a checksum mismatch that reads like
 file corruption, and it would turn F21's guarantee into a lie that looks like a
 feature.
+
+---
+
+## D3 — iPhone is a read-only extension; sync is one-way
+
+**Status:** decided. Design in [STAGE2-IPHONE.md](STAGE2-IPHONE.md). Not built,
+and not to be started until stage 1 — a working Mac app — is done.
+
+**Context.** Most of the maintainer's dictation happens on iPhone, which raised
+whether cochlea should be a phone tool that trains on a Mac, or a Mac tool that
+extends to a phone.
+
+**Decision.** A Mac tool. The Mac captures corrections, trains, and owns the
+lexicon. The iPhone receives a read-only lexicon snapshot and uses it to fix the
+output of Apple's own keyboard dictation. Nothing flows back from the phone.
+
+**Why one-way rather than the seemingly better bidirectional.** A phone that
+contributes corrections sounds strictly better and is not. Making the Mac the
+only writer removes three problems at once: conflict resolution between two
+writers of the same store; a holdout that would have to span devices or let
+invariant 2 quietly lapse; and a post-correction adapter fitted to two
+different engines' error distributions at once. §1.3's claim that text pairs
+are base-model-agnostic is about portability, not about error distribution —
+one-way means that distinction never has to be resolved.
+
+**What it costs.** Corrections made on the phone are applied and then
+forgotten. Given that the Mac already collects a better correction signal —
+with acoustic evidence and a fix-last panel — this is a small loss for a large
+simplification.
+
+**Consequence: no schema change.** An earlier draft of this recommended adding
+`device_id` and a cross-device holdout flag as cheap insurance against a
+bidirectional future. Under D3 neither is needed and neither should be added.
+The correction store stays as it is.
+
+**What would reverse this.** Evidence that phone-side corrections are both
+frequent and materially better than what the Mac captures. That is measurable
+once stage 1 reports a real corrections-per-100-words figure (M1), so the
+question can be answered with data rather than intuition.
