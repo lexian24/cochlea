@@ -11,30 +11,40 @@ Read this list before you start. Each test names **what should happen** and
 ## Setup, once
 
 ```sh
-# The helper the app shells out to for speech recognition (D5).
-ln -sf "$PWD/.venv/bin/dictate" /opt/homebrew/bin/dictate
-
-# Point the app at a model you have. `whisper-small` meets M0's latency
-# budget on an 8 GB M2; `large-v3-turbo` does not (D6).
-cat > ~/.cochlea/config.json <<'JSON'
-{ "mode": "commitOnRelease", "modelIdentifier": "whisper-small",
-  "keepModelResident": true, "acousticRetentionEnabled": false,
-  "latencyBudgetMillis": 1000, "home": "file:///Users/YOU/.cochlea/" }
-JSON
-
-bash Tools/build-app.sh
-codesign --force --sign - --identifier com.cochlea.app build/cochlea.app
-xattr -dr com.apple.quarantine build/cochlea.app
+Tools/setup-testing.sh
 ```
 
-Ad-hoc signing is not cosmetic: TCC keys an unsigned bundle by path and
-re-prompts unpredictably across rebuilds. With a stable identifier you can also
-reset permissions cleanly when a rebuild confuses it:
+It links the `dictate` helper where the app looks for it, writes
+`~/.cochlea/config.json` pointing at a model you have, then builds, signs and
+unquarantines the bundle. It is idempotent and it prints what is missing rather
+than failing obscurely, so re-run it after any Swift change — that rebuild and
+re-sign is the whole point.
+
+Two things it does that are not obvious:
+
+- **Ad-hoc signing is not cosmetic.** TCC keys an unsigned bundle by path and
+  re-prompts unpredictably across rebuilds. With a stable identifier you can
+  also reset permissions cleanly when a rebuild confuses it:
+
+  ```sh
+  tccutil reset Accessibility com.cochlea.app
+  tccutil reset Microphone com.cochlea.app
+  ```
+
+- **It does not put `dictate` on `PATH`, it links it into
+  `/opt/homebrew/bin`.** An app launched from Finder does not inherit the
+  shell's `PATH`, so an app that trusted it would work from a terminal and fail
+  on double-click.
+
+It defaults to `whisper-small`, which meets M0's latency budget on an 8 GB M2
+where `large-v3-turbo` does not (D6). To test the other one:
 
 ```sh
-tccutil reset Accessibility com.cochlea.app
-tccutil reset Microphone com.cochlea.app
+COCHLEA_TEST_MODEL=whisper-large-v3-turbo Tools/setup-testing.sh
 ```
+
+(that model has to be downloaded first, and the config is only written when
+absent — delete `~/.cochlea/config.json` to have it rewritten).
 
 ## Watching what it does
 
