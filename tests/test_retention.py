@@ -7,6 +7,20 @@ from cochlea.retention import (DEFAULT_MAX_AGE_DAYS, FeatureStore, KeyStore,
                                SpeakerVerifier)
 from cochlea.store import MEL80, CorrectionStore, QUARANTINED, Utterance
 
+try:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: F401
+    HAVE_CRYPTO = True
+except BaseException:      # a mis-packaged build can fail with more than ImportError
+    HAVE_CRYPTO = False
+
+#: Encryption at rest needs the `acoustic` extra. Without it F7 says the store
+#: must refuse to write rather than fall back to plaintext, so these tests skip
+#: rather than fail — the same contract as the optional `zh` backend. The
+#: fail-closed test below deliberately does NOT skip: that behaviour must hold
+#: precisely when cryptography is missing.
+requires_crypto = pytest.mark.skipif(
+    not HAVE_CRYPTO, reason="needs the `acoustic` extra (cryptography)")
+
 
 @pytest.fixture
 def store(tmp_path):
@@ -26,6 +40,7 @@ def test_retention_is_off_by_default(tmp_path):
 
 # --- encryption at rest (F7) ------------------------------------------------
 
+@requires_crypto
 def test_features_are_not_readable_on_disk(store):
     plaintext = b"this would be a mel spectrogram" * 20
     path = store.put("u1", plaintext, duration_seconds=2.0)
@@ -34,17 +49,20 @@ def test_features_are_not_readable_on_disk(store):
     assert store.get("u1") == plaintext
 
 
+@requires_crypto
 def test_key_file_is_not_world_readable(tmp_path, store):
     store.put("u1", b"x", duration_seconds=1.0)
     mode = (tmp_path / "key.bin").stat().st_mode & 0o777
     assert mode == 0o600
 
 
+@requires_crypto
 def test_feature_files_are_not_world_readable(store):
     path = store.put("u1", b"x", duration_seconds=1.0)
     assert path.stat().st_mode & 0o777 == 0o600
 
 
+@requires_crypto
 def test_backup_exclusion_marker_is_written(store):
     store.put("u1", b"x", duration_seconds=1.0)
     assert (store.directory / ".nobackup").exists()
@@ -52,6 +70,7 @@ def test_backup_exclusion_marker_is_written(store):
 
 # --- retention caps (F7) ----------------------------------------------------
 
+@requires_crypto
 def test_volume_cap_drops_oldest_first(tmp_path):
     fs = FeatureStore(tmp_path / "f", KeyStore(tmp_path / "k"),
                       enabled=True, max_hours=1.0)
@@ -64,6 +83,7 @@ def test_volume_cap_drops_oldest_first(tmp_path):
     assert "u0" in removed and "u4" not in removed       # oldest went first
 
 
+@requires_crypto
 def test_age_cap_drops_stale_entries(tmp_path):
     fs = FeatureStore(tmp_path / "f", KeyStore(tmp_path / "k"),
                       enabled=True, max_age_days=7)
@@ -75,6 +95,7 @@ def test_age_cap_drops_stale_entries(tmp_path):
     assert fs.get("new") == b"x"
 
 
+@requires_crypto
 def test_retention_holds_under_sustained_heavy_use(tmp_path):
     """M5 acceptance: the cap is enforced under sustained use, not just once."""
     fs = FeatureStore(tmp_path / "f", KeyStore(tmp_path / "k"),
@@ -87,6 +108,7 @@ def test_retention_holds_under_sustained_heavy_use(tmp_path):
 
 # --- purge ------------------------------------------------------------------
 
+@requires_crypto
 def test_purge_removes_everything_verifiably(store, tmp_path):
     for i in range(5):
         store.put(f"u{i}", b"secret", duration_seconds=1.0)
@@ -136,6 +158,7 @@ def test_quarantined_speaker_never_reaches_the_training_set():
     assert len(cs.review_queue()) == 1
 
 
+@requires_crypto
 def test_opting_out_leaves_text_layers_working(tmp_path):
     """M5 acceptance: layers 1 and 2 stay fully functional after opting out."""
     fs = FeatureStore(tmp_path / "f", KeyStore(tmp_path / "k"), enabled=True)

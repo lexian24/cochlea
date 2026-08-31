@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install --upgrade pip
-      - run: pip install -e ".[dev,zh]"
+      - run: pip install -e ".[dev,zh,acoustic]"
       - name: Configure a git identity for the importer tests
         run: |
           git config --global user.email ci@example.com
@@ -57,9 +57,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Show toolchain
         run: swift --version
+      # `set -o pipefail` matters: `swift build | tail` returns tail's exit
+      # code, so without it a failed build reports success and the job is
+      # green while nothing compiles.
       - name: Build
         working-directory: macos
-        run: swift build 2>&1 | tail -80
+        shell: bash
+        run: set -o pipefail && swift build 2>&1 | tail -80
       - name: Test
         working-directory: macos
-        run: swift test 2>&1 | tail -80
+        shell: bash
+        run: set -o pipefail && swift test 2>&1 | tail -80

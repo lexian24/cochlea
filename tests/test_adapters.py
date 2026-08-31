@@ -7,7 +7,7 @@ from cochlea.adapters import (RETAIN, AdapterRegistry, config_hash,
 from cochlea.evaluation import EvalResult, HoldoutManager, evaluate, gate
 from cochlea.store import CORRECTION, CorrectionStore, Utterance
 
-from tests.test_evaluation import CorruptTranscriber, PerfectTranscriber, populate
+from helpers import CorruptTranscriber, PerfectTranscriber, populate
 
 
 def good(n=50): return EvalResult(n, 1.0, 0.1, 0.2)

@@ -10,7 +10,7 @@ from cochlea.training import (CORRECTED_RATIO, WEAK_POSITIVE_WEIGHT, Example,
                               ResourceGuard, TrainingRun, build_replay_batch,
                               rebuild)
 
-from tests.test_evaluation import CorruptTranscriber, PerfectTranscriber
+from helpers import CorruptTranscriber, PerfectTranscriber, seed
 
 
 class RecordingTrainer:
@@ -20,17 +20,6 @@ class RecordingTrainer:
     def train(self, examples, base_model, config):
         self.batches.append(list(examples))
         return {"loss": 0.1}
-
-
-def seed(store, corrections=40, accepted=40):
-    for i in range(corrections):
-        store.add(Utterance(hypothesis=f"cube cuddle {i} get pods",
-                            final_text=f"kubectl {i} get pods",
-                            base_model_id="m", attribution=CORRECTION))
-    for i in range(accepted):
-        store.add(Utterance(hypothesis=f"the build number {i} is green",
-                            base_model_id="m", attribution=UNEDITED))
-    return store
 
 
 # --- replay buffer (F3, F4) -------------------------------------------------

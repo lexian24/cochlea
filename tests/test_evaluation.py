@@ -7,35 +7,7 @@ from cochlea.adapters import (AdapterRegistry, config_hash,
 from cochlea.evaluation import (HoldoutManager, EvalResult, evaluate, gate)
 from cochlea.metrics import entity_error_rate, wer
 from cochlea.store import CORRECTION, CorrectionStore, Utterance
-
-
-class PerfectTranscriber:
-    """Returns exactly what the user meant."""
-    def __init__(self, store):
-        self.by_id = {r["id"]: (r["final_text"] or r["hypothesis"]) for r in store.all()}
-        self.seen = []
-    def transcribe(self, utterance_id, hypothesis):
-        self.seen.append(utterance_id)
-        return self.by_id[utterance_id]
-
-
-class CorruptTranscriber:
-    """A deliberately corrupted adapter: it mangles everything."""
-    def __init__(self):
-        self.seen = []
-    def transcribe(self, utterance_id, hypothesis):
-        self.seen.append(utterance_id)
-        return "zzz " * max(len(hypothesis.split()), 1)
-
-
-def populate(store, n=40):
-    ids = []
-    for i in range(n):
-        u = Utterance(hypothesis=f"deploy service number {i} to the cluster",
-                      final_text=f"deploy service number {i} to the kubectl cluster",
-                      base_model_id="whisper-turbo", attribution=CORRECTION)
-        ids.append(store.add(u))
-    return ids
+from helpers import CorruptTranscriber, PerfectTranscriber, populate
 
 
 # --- holdout ----------------------------------------------------------------

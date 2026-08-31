@@ -62,7 +62,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.run()
+/// Entry point.
+///
+/// Not `main.swift`: top-level code is nonisolated in Swift 5.10, so
+/// constructing a `@MainActor` `AppDelegate` there is an actor-isolation
+/// error. `@main` on a `@MainActor` type puts the entry point on the main
+/// actor instead, which is where an AppKit app belongs anyway.
+@main
+@MainActor
+enum CochleaMain {
+    /// `NSApplication.delegate` is a weak reference. A local would be
+    /// deallocated the moment `main()` returned into `run()`, so the delegate
+    /// is held for the process lifetime here.
+    static let delegate = AppDelegate()
+
+    static func main() {
+        let app = NSApplication.shared
+        app.delegate = delegate
+        app.run()
+    }
+}

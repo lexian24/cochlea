@@ -1,8 +1,12 @@
 # Building cochlea.app locally
 
-> **This has never been compiled.** It was written on Linux with no Swift
-> toolchain, no macOS SDK and no Apple Silicon. Assume it does not build until
-> you have built it. The Python half is the tested half.
+> **Status: CI compiles this on macOS 14.** It was written on Linux with no
+> Swift toolchain, so every line was unverified until GitHub Actions built it.
+> The `macos-app` job in `.github/workflows/ci.yml` is the source of truth for
+> whether it currently builds — check it before you start.
+>
+> It still does not *do* anything: there is no ASR backend, so it cannot
+> transcribe. See "Wiring up an ASR backend" below.
 
 ## First run
 
@@ -24,32 +28,51 @@ open build/cochlea.app
 It appears in the menu bar with no Dock icon. The hotkey is **Control-Option-D**
 (push to talk). It will not transcribe: there is no ASR backend.
 
-## Expected first-build failures, roughly in order
+## What the first real compile found
 
-These are my best guesses at what I got wrong, written blind. Ranked by how
-likely they are to bite.
+The Swift was written blind, so this section used to be five guesses. CI has
+since actually built it on macOS 14 (Swift 5.10, arm64), so here is what
+happened instead.
 
-1. **`kEventHotKeyReleased` may not fire.** `HotkeyMonitor` assumes
-   `RegisterEventHotKey` delivers key-up as well as key-down, which the whole
-   push-to-talk interaction depends on. If it does not, switch to an
-   `NSEvent.addGlobalMonitorForEvents` flags-changed monitor — but note that
-   changes the permission story, since a global monitor sees more.
-2. **Actor isolation.** `DictationController` is `@MainActor` and the audio tap
-   fires on a real-time thread; every frame currently hops to the main actor
-   via `Task { @MainActor in ... }`. Swift 6 strict concurrency will likely
-   complain, and the traffic may be too high regardless — the segmenter
-   probably belongs off-main with only the finished utterance hopping over.
-3. **`AVAudioConverter` input block.** The single-shot `supplied` flag pattern
-   is standard, but check behaviour when the input device changes sample rate
-   mid-session (AirPods connecting) — the converter is built once in `start()`.
-4. **`keyboardSetUnicodeString` chunking.** 16 UTF-16 units per event is
-   conservative folklore, not a documented limit. Verify with long utterances
-   and non-Latin scripts.
-5. **`URLSession.AsyncBytes` throughput.** `ModelDownloader` iterates one byte
-   at a time, buffered into 1 MB writes. Over a 1.6 GB model the per-byte
-   `await` overhead may be unacceptable. If so, move to
-   `URLSessionDownloadTask` with resume data — at the cost of resume no longer
-   surviving app restarts.
+**23 of 25 compile steps passed on the first attempt.** `CochleaCore`,
+`CochleaASR`, `CochleaInput` and `CochleaAudio` all built clean — including
+`AudioCapture`'s `AVAudioConverter` block, the Carbon `HotkeyMonitor`, the
+`CGEvent` `TextInjector`, and the resumable downloader.
+
+**One error, since fixed:**
+
+```
+CochleaApp/main.swift:66:16: error: call to main actor-isolated initializer
+'init()' in a synchronous nonisolated context
+```
+
+Top-level code in `main.swift` is nonisolated in Swift 5.10, so constructing a
+`@MainActor AppDelegate` there is an isolation error. The file is now
+`CochleaMain.swift` with an `@main @MainActor enum` — which also fixes a bug
+the compiler did not catch: `NSApplication.delegate` is *weak*, so a local
+`delegate` would have been deallocated immediately. It is a `static let` now.
+
+### Still unverified — the compiler cannot check these
+
+Compiling is not running. These need a real Mac, a microphone and your hands:
+
+1. **`kEventHotKeyReleased` delivery.** `HotkeyMonitor` assumes
+   `RegisterEventHotKey` reports key-up as well as key-down, which push-to-talk
+   depends on entirely. It compiles; whether it fires is a runtime question.
+   Fallback is an `NSEvent` global monitor, which changes the permission story.
+2. **`AVAudioConverter` on device change.** The converter is built once in
+   `start()`. Check what happens when AirPods connect mid-session and the input
+   sample rate changes.
+3. **`keyboardSetUnicodeString` chunking.** 16 UTF-16 units per event is
+   conservative folklore, not a documented limit. Test long utterances and
+   non-Latin scripts.
+4. **Main-actor traffic.** Every audio frame hops to the main actor via
+   `Task { @MainActor in ... }`. It compiles under Swift 5.10; it may be too
+   much traffic in practice, and Swift 6 strict concurrency will likely object.
+   The segmenter probably belongs off-main.
+5. **`URLSession.AsyncBytes` throughput.** The downloader iterates one byte at
+   a time into 1 MB writes. Over 1.6 GB the per-byte `await` overhead may be
+   unacceptable — profile before assuming it is fine.
 
 ## Wiring up an ASR backend
 
