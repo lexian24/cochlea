@@ -138,7 +138,7 @@ buffer and the resource gate, is built and tested.
 
 | | Milestone | State |
 |---|---|---|
-| **M0** | Competitive dictation, zero learning | draft Swift, **uncompiled**, no ASR backend |
+| **M0** | Competitive dictation, zero learning | draft Swift, **uncompiled**; model chosen, no backend |
 | **M1** | Correction capture | engine built, no UI (needs M0) |
 | **M2** | Lexicon and biasing | extraction + decay built; decode-time biasing needs an ASR |
 | **M3** | Evaluation harness — gates all training | **built** (no transcriber to score yet) |

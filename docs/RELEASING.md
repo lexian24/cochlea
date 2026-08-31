@@ -1,78 +1,106 @@
-# Releasing, and what still blocks a working `brew install`
+# Releasing
 
-## Current state
-
-`brew install cochlea` does **not** work, and cannot yet. Three things are
-missing, in order:
-
-1. **No release tag exists.** `Formula/cochlea.rb` carries a placeholder
-   `sha256` of all zeros and points at `v0.0.1`, which has never been cut.
-   Homebrew refuses a formula whose checksum does not match, so the formula in
-   this repository is a template, not an installable package.
-2. **No tap exists.** A formula in a repository is not discoverable by
-   Homebrew. It needs either a tap repository (`lexian24/homebrew-cochlea`, so
-   `brew tap lexian24/cochlea && brew install cochlea`) or acceptance into
-   homebrew-core, which has notability requirements this project does not meet
-   yet.
-3. **The name `dictate` is unverified.** SPEC §4 settles the binary as
-   `dictate`, which is a generic verb. Check it is unclaimed in homebrew-core
-   and unlikely to collide in a user's `$PATH` *before* the first release —
-   renaming after an install path exists is a user-visible migration.
-
-## Cutting a release
+## Installing today
 
 ```sh
-# 1. bump the version
-$EDITOR pyproject.toml            # [project] version = "0.1.0"
+brew install --formula https://raw.githubusercontent.com/lexian24/cochlea/main/Formula/cochlea.rb
+```
 
-# 2. tag and push
-git tag v0.1.0 && git push origin v0.1.0
+This works. It installs the `dictate` CLI into a virtualenv. It does not
+install a dictation app and it does not transcribe audio — see
+[macos/README.md](../macos/README.md).
 
-# 3. stamp the formula with the real tarball checksum
-scripts/stamp-formula.sh v0.1.0
+### Why the formula pins a commit, not a tag
 
-# 4. verify locally before publishing
+`Formula/cochlea.rb` points at
+`https://github.com/lexian24/cochlea/archive/<commit>.tar.gz`.
+
+The environment this was released from could not create tags — GitHub answered
+`403` to every push to `refs/tags/*`, while branch pushes succeeded. A commit
+tarball is immutable, so the pinned `sha256` stays valid indefinitely; the only
+thing lost is that Homebrew cannot infer a version from the URL, so `version`
+is declared explicitly.
+
+**This is worth converting to a tag** when someone with tag permission gets to
+it, because a tag is what people expect to see and what release tooling reads:
+
+```sh
+git tag -a v0.1.0 -m "cochlea 0.1.0" && git push origin v0.1.0
+scripts/stamp-formula.sh v0.1.0        # rewrites url + sha256 for the tag
+```
+
+One caveat that applies to both forms: GitHub's auto-generated archives are not
+contractually byte-stable. They have been stable for years and homebrew-core
+depends on it, but an upstream change to the archiver would invalidate the
+checksum. Uploading a release asset built with `git archive` avoids this
+entirely and is the right move before this has real users.
+
+### A tap, if you want the short command
+
+`brew install cochlea` (no URL) needs a tap repository named
+`lexian24/homebrew-cochlea` containing `Formula/cochlea.rb`. Then:
+
+```sh
+brew tap lexian24/cochlea
+brew install cochlea
+```
+
+Nothing else changes; the formula file is the same.
+
+## Verifying a release
+
+What was actually run against this formula, from a clean directory:
+
+1. Fetched the URL the formula names and confirmed the `sha256` matches.
+2. Extracted it, built a fresh virtualenv, `pip install .`.
+3. Ran every assertion in the formula's `test do` block against the installed
+   binary: version string, `doctor` output, that a fresh install defaults to
+   **text-only** (invariant 7), and that an unimplemented subcommand reports
+   its milestone and exits 2.
+4. Confirmed the bundled word list ships inside the package.
+
+On a Mac, the equivalent is:
+
+```sh
 brew install --build-from-source Formula/cochlea.rb
 brew test cochlea
 brew audit --strict --new Formula/cochlea.rb
 ```
 
-`scripts/stamp-formula.sh` fetches the release tarball, computes its SHA-256,
-rewrites `url` and `sha256`, and removes the not-publishable banner. It accepts
-a local tarball as a second argument for dry runs:
+`brew audit` has not been run — Homebrew does not exist on the machine this was
+built on. Expect it to have opinions about the commit-pinned URL.
+
+## The binary name
+
+The formula installs `dictate`, which is a generic verb and a plausible `$PATH`
+collision. It is unclaimed in homebrew-core as far as this repository knows,
+but that has not been checked against a live index. Check before promoting this
+beyond a URL install — renaming after people have it installed is a migration.
+
+## Cutting the next release
 
 ```sh
-git archive --format=tar.gz --prefix=cochlea-0.1.0/ HEAD -o /tmp/c.tar.gz
-scripts/stamp-formula.sh v0.1.0 /tmp/c.tar.gz
+$EDITOR pyproject.toml                 # bump [project] version
+git commit -am "Release 0.2.0" && git push origin main
+scripts/stamp-formula.sh v0.2.0        # or re-pin the new commit
 ```
 
-## What the formula does and does not install
+`__version__` is read from package metadata, so `pyproject.toml` is the single
+source and the formula's version assertion cannot drift from it.
 
-It installs the `dictate` CLI into a virtualenv. It does **not** install:
+## What the formula does not install
 
-- **The macOS app.** The capture path — hotkey, VAD, on-device ASR,
-  type-at-cursor, menu bar — is M0 and is not written. Until it exists,
-  `dictate` cannot transcribe audio.
-- **Model weights.** Per SPEC F21 a formula never ships a 1.6 GB model; models
-  download on first run with checksum verification and a resumable transfer.
-  That download path is M0 and does not exist either.
+- **The macOS app.** M0 is an uncompiled Swift draft. A `.app` ships through a
+  Homebrew **cask**, not this formula.
+- **Model weights.** Per F21 a formula never ships a 1.6 GB model. The default
+  model is decided ([D1](DECISIONS.md)) but its checksums are not pinned
+  ([D2](DECISIONS.md)) and no ASR backend exists yet.
 
-## Before the app ships, not after
+## Still blocking a real product release
 
 - **F22, signing and notarization.** An unsigned app requesting Accessibility
-  and Full Disk Access is blocked by Gatekeeper. This costs an Apple Developer
-  Program membership plus notarization setup, and the spec requires it resolved
-  before M0 ships. A Homebrew *cask* (which is how a `.app` is distributed, as
-  opposed to the formula here) makes this visible immediately: users hit the
-  quarantine prompt on first launch.
-- **F23, model licensing.** Whisper is MIT, but Parakeet, SenseVoice, MERaLiON
-  and the National Speech Corpus each carry their own terms. Record every
-  shipped artifact's license in `LICENSES-MODELS.md` before distributing
-  anything that downloads weights.
-
-## One more prerequisite
-
-`Formula/cochlea.rb` declares `head "...", branch: "main"`. This repository has
-no `main` — the first push landed on an empty repo, so the working branch became
-the default branch. Rename it before publishing the formula, or `brew install
---HEAD` will fail to resolve.
+  and Microphone access is blocked by Gatekeeper. Required before M0 ships.
+- **F23, model licensing.** Whisper is MIT, which is why it was chosen, but
+  `LICENSES-MODELS.md` still has to exist before anything downloads weights.
+- **D2, checksum pinning.** Run `scripts/pin-model.sh` somewhere with network
+  access to huggingface.co and commit the digests.

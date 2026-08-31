@@ -1,10 +1,5 @@
 # Homebrew formula for the cochlea CLI.
 #
-# STATUS: not yet publishable. `url` and `sha256` below point at a release tag
-# that does not exist. Nothing installs from this formula until a tag is cut
-# and `scripts/stamp-formula.sh` fills those two fields in. See
-# docs/RELEASING.md.
-#
 # This formula installs the `dictate` CLI only. The macOS menu bar app and the
 # dictation capture path land at M0 and are not part of this package. Per SPEC
 # F21 a formula never ships model weights: models are downloaded on first run
@@ -14,8 +9,12 @@ class Cochlea < Formula
 
   desc "Local-only personalized dictation that adapts to one person"
   homepage "https://github.com/lexian24/cochlea"
-  url "https://github.com/lexian24/cochlea/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  # Pinned to a commit rather than a tag: this repository has no release tag
+  # yet. A commit tarball is immutable, so the checksum below stays valid.
+  url "https://github.com/lexian24/cochlea/archive/3b274ea23cc91eb761b90da6889c0e2f7f28423c.tar.gz"
+  # Homebrew cannot infer a version from a commit URL, so it is declared.
+  version "0.1.0"
+  sha256 "d3e46e752b380ca940fdcffd05ed682bd070ff19421ec93c0f26b4adcc414cdf"
   license "MIT"
   head "https://github.com/lexian24/cochlea.git", branch: "main"
 
