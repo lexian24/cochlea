@@ -25,7 +25,24 @@ def test_holdout_reservation_is_reproducible():
     a = HoldoutManager(store, salt="r0")
     b = HoldoutManager(store, salt="r0")
     assert [a._selected(i) for i in ids] == [b._selected(i) for i in ids]
-    assert any(a._selected(i) for i in ids)          # and it selects something
+
+
+def test_the_selector_selects_a_share_rather_than_nothing():
+    """That `_selected` is not simply always false.
+
+    Deliberately on fixed ids, not on a populated store. This assertion used to
+    live in the test above as `any(a._selected(i) for i in ids)` over 40 random
+    uuids, which is 0.85**40 -- a 1-in-666 chance of an empty selection and a
+    red build with nothing wrong. It failed in CI on 3.11 while 3.10 and 3.12
+    passed, which is exactly what an intermittent test looks like from the
+    outside: a version-specific bug that is not one.
+
+    sha256 is fixed, so these counts cannot drift.
+    """
+    store = CorrectionStore()
+    ids = [f"utt-{i:04d}" for i in range(40)]
+    assert sum(HoldoutManager(store, salt="r0")._selected(i) for i in ids) == 7
+    assert sum(HoldoutManager(store, salt="r1")._selected(i) for i in ids) == 3
 
 
 def test_a_different_salt_selects_a_different_share():

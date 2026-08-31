@@ -48,14 +48,12 @@ jobs:
         run: pytest -q tests/test_journeys.py
 
   macos-app:
-    # The Swift target builds green and is no longer the unknown quantity this
-    # comment used to describe. It stays non-blocking for one more reason:
-    # CochleaASRTests is new and has never run anywhere, because XCTest needs
-    # full Xcode and the machine it was written on has only Command Line Tools.
-    # Once it has passed here, drop continue-on-error — a Swift regression
-    # should fail the build.
+    # Blocking, as of the run where CochleaASRTests first executed: 31 tests,
+    # 0 failures. This job was allowed to fail while the Swift was an unproven
+    # draft written without a toolchain, which is no longer what it is. Note
+    # that XCTest needs full Xcode, so a machine with only Command Line Tools
+    # cannot run these locally — this job is the only place they execute.
     runs-on: macos-14
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Show toolchain
