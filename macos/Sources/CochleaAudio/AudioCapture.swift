@@ -38,6 +38,13 @@ public final class AudioCapture {
                                      interleaved: false)!
     }
 
+    /// Whether the microphone is already granted. Never prompts, so it is
+    /// safe to call at launch under invariant 8 — reporting a permission is
+    /// not requesting one.
+    public static var hasPermission: Bool {
+        AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+
     /// Asks for microphone access. Call this from the hotkey handler.
     public static func requestPermission() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {

@@ -14,6 +14,13 @@ public final class MenuBarController {
 
     private let statusItem: NSStatusItem
     private var learningPaused = false
+    /// The two lines at the top of the menu. They used to be one static
+    /// "No model installed", which was wrong as soon as a model was installed
+    /// and useless while testing the runtime behaviour M0 has not verified —
+    /// the menu is the only surface a menu bar app has, so it is where the
+    /// answer to "what just happened?" belongs.
+    private let backendItem = NSMenuItem(title: "starting…", action: nil, keyEquivalent: "")
+    private let eventItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
 
     public var onQuit: (() -> Void)?
     public var onTogglePauseLearning: ((Bool) -> Void)?
@@ -26,6 +33,19 @@ public final class MenuBarController {
 
     public func update(state: DictationController.State) {
         configureButton(for: state)
+    }
+
+    /// What the app is wired up to: the transcriber and the model behind it.
+    public func describeBackend(_ description: String) {
+        backendItem.title = description
+    }
+
+    /// The last thing that happened, so a failure is readable without a log.
+    public func describeEvent(_ description: String) {
+        eventItem.title = description.count > 70
+            ? String(description.prefix(69)) + "…"
+            : description
+        eventItem.toolTip = description
     }
 
     private func configureButton(for state: DictationController.State) {
@@ -46,9 +66,10 @@ public final class MenuBarController {
     private func buildMenu() {
         let menu = NSMenu()
 
-        let status = NSMenuItem(title: "No model installed", action: nil, keyEquivalent: "")
-        status.isEnabled = false
-        menu.addItem(status)
+        backendItem.isEnabled = false
+        eventItem.isEnabled = false
+        menu.addItem(backendItem)
+        menu.addItem(eventItem)
         menu.addItem(.separator())
 
         let pause = NSMenuItem(title: "Pause learning",

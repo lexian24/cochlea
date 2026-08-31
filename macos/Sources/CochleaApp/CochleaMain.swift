@@ -11,7 +11,31 @@ import Foundation
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
-    private var configuration = Configuration()
+    /// Defaults, unless `~/.cochlea/config.json` says otherwise.
+    ///
+    /// `Configuration.save()` and `load(from:)` both existed and nothing
+    /// called the loader, so the file the app writes was never read back. That
+    /// also made `modelIdentifier` unchangeable without a rebuild, which
+    /// matters directly: D6 measured `whisper-small` inside M0's latency
+    /// budget and the default `large-v3-turbo` outside it on an 8 GB machine.
+    private var configuration = AppDelegate.loadConfiguration()
+
+    static func loadConfiguration() -> Configuration {
+        let defaults = Configuration()
+        guard FileManager.default.fileExists(atPath: defaults.configFile.path) else {
+            return defaults
+        }
+        do {
+            let loaded = try Configuration.load(from: defaults.configFile)
+            Diagnostics.log("config", "loaded \(defaults.configFile.path)")
+            return loaded
+        } catch {
+            // A corrupt config must not stop the app starting; defaults are
+            // always usable and the reason is logged.
+            Diagnostics.log("config", "ignoring \(defaults.configFile.path): \(error)")
+            return defaults
+        }
+    }
     private var menuBar: MenuBarController?
     private var controller: DictationController?
 
@@ -36,6 +60,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = DictationController(configuration: configuration,
                                              transcriber: transcriber)
         controller.onStateChange = { [weak menuBar] state in menuBar?.update(state: state) }
+        controller.onEventChange = { [weak menuBar] event in menuBar?.describeEvent(event) }
+        menuBar.describeBackend(transcriber is UnavailableTranscriber
+            ? "no speech backend"
+            : "model: \(transcriber.identifier)")
+        menuBar.describeEvent((transcriber as? UnavailableTranscriber)?.reason ?? "ready")
         menuBar.onQuit = { NSApp.terminate(nil) }
 
         do {
