@@ -14,15 +14,15 @@ import sys
 from pathlib import Path
 
 from . import SCHEMA_VERSION, __version__, phonetics
+from .adapters import LAYERS, AdapterRegistry
+from .evaluation import HoldoutManager, evaluate, gate
 from .importers import get as get_importer
 from .lexicon import Lexicon, HomophoneRejected, detect_variants, extract_terms
 from .store import CorrectionStore
 
 NOT_YET = {
     "train": "M4 (post-correction) / M5 (acoustic)",
-    "eval": "M3",
     "rebuild": "M4",
-    "rollback": "M3",
     "profile": "M6",
     "lexicon": "M2 (extraction works today; persistence does not)",
 }
@@ -32,6 +32,16 @@ def default_store_path() -> Path:
     base = Path(os.environ.get("COCHLEA_HOME", Path.home() / ".cochlea"))
     base.mkdir(parents=True, exist_ok=True)
     return base / "corrections.db"
+
+
+def registry_path() -> Path:
+    base = Path(os.environ.get("COCHLEA_HOME", Path.home() / ".cochlea"))
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "adapters.db"
+
+
+def _registry(args) -> AdapterRegistry:
+    return AdapterRegistry(getattr(args, "registry", None) or registry_path())
 
 
 def _store(args) -> CorrectionStore:
@@ -103,6 +113,75 @@ def cmd_purge(args) -> int:
     return 0
 
 
+def cmd_holdout(args) -> int:
+    store = _store(args)
+    reserved = HoldoutManager(store, fraction=args.fraction,
+                              salt=args.salt).reserve()
+    total = len(store.holdout_set())
+    print(f"reserved {len(reserved)} new item(s) at rotation {args.salt!r}")
+    print(f"holdout now {total} of {len(store.all())} utterance(s)")
+    print("Reservation is permanent: these are never trained on (invariant 2).")
+    return 0
+
+
+def cmd_eval(args) -> int:
+    """Score the current adapters against the holdout.
+
+    Without a transcriber there is nothing to score, and M3 deliberately does
+    not depend on M4/M5 to be testable -- so this reports the gate's readiness
+    rather than inventing a result.
+    """
+    store = _store(args)
+    held = store.holdout_set()
+    reg = _registry(args)
+    print(f"holdout            {len(held)} item(s)")
+    if len(held) < args.min_holdout:
+        print(f"gate               NOT READY -- need at least {args.min_holdout} "
+              f"holdout items to decide")
+        print("                   run `dictate holdout` after more corrections land")
+    else:
+        print("gate               ready")
+    for layer in LAYERS:
+        cur = reg.current(layer)
+        if cur is None:
+            print(f"{layer:18} no promoted adapter")
+        else:
+            score = cur.eval.as_dict() if cur.eval else "no score recorded"
+            print(f"{layer:18} v{cur.version} ({cur.id})  {score}")
+    print()
+    print("No transcriber is wired up: base ASR is M0 and the trained layers are")
+    print("M4/M5. `dictate eval` scores real adapters once those exist.")
+    return 0
+
+
+def cmd_rollback(args) -> int:
+    reg = _registry(args)
+    restored = reg.rollback(args.layer, to_version=args.to)
+    if restored is None:
+        print(f"no earlier {args.layer} adapter to roll back to", file=sys.stderr)
+        return 1
+    print(f"rolled {args.layer} back to v{restored.version} ({restored.id})")
+    return 0
+
+
+def cmd_adapters(args) -> int:
+    reg = _registry(args)
+    any_found = False
+    for layer in LAYERS:
+        history = reg.history(layer)
+        if not history:
+            continue
+        any_found = True
+        print(f"{layer}:")
+        for a in history:
+            mark = "*" if a.promoted else " "
+            print(f"  {mark} v{a.version:<3} {a.id:34} base={a.base_model_id} "
+                  f"cfg={a.config_hash}")
+    if not any_found:
+        print("no adapters registered (training lands at M4/M5)")
+    return 0
+
+
 def cmd_doctor(args) -> int:
     store_path = args.store or default_store_path()
     print(f"cochlea            {__version__}")
@@ -112,7 +191,26 @@ def cmd_doctor(args) -> int:
     print(f"phonetic backends  {', '.join(phonetics.available())} (fallback: edit-distance)")
     print(f"importers          {', '.join(sorted(__import__('cochlea.importers', fromlist=['REGISTRY']).REGISTRY))}")
     print("base model         none (M0 not implemented)")
-    print("adapters           none (M4/M5 not implemented)")
+    if Path(store_path).exists():
+        st = CorrectionStore(store_path, text_only=not args.acoustic)
+        print(f"utterances         {len(st.all())} "
+              f"({len(st.holdout_set())} holdout, {len(st.review_queue())} quarantined)")
+        print(f"corrections/100w   {st.corrections_per_100_words():.3f}")
+    reg = _registry(args)
+    printed = False
+    for layer in LAYERS:
+        cur = reg.current(layer)
+        if cur is not None:
+            printed = True
+            ev = cur.eval.as_dict() if cur.eval else {}
+            print(f"adapter {layer:10} v{cur.version} id={cur.id} "
+                  f"base={cur.base_model_id} cfg={cur.config_hash}")
+            print(f"                   eval={ev}")
+    if not printed:
+        print("adapters           none promoted (M4/M5 not implemented)")
+    print()
+    print("Paste this into a bug report: it carries the adapter version, base")
+    print("model, config hash and eval score a regression needs (SPEC F15).")
     return 0
 
 
@@ -133,6 +231,23 @@ def main(argv: list[str] | None = None) -> int:
     imp.set_defaults(func=cmd_import)
 
     sub.add_parser("review", help="show the correction queue").set_defaults(func=cmd_review)
+
+    hp = sub.add_parser("holdout", help="reserve a share of corrections from training")
+    hp.add_argument("--fraction", type=float, default=0.15)
+    hp.add_argument("--salt", default="r0", help="rotation label (F16)")
+    hp.set_defaults(func=cmd_holdout)
+
+    ev = sub.add_parser("eval", help="holdout metrics and gate decision")
+    ev.add_argument("--min-holdout", type=int, default=5)
+    ev.set_defaults(func=cmd_eval)
+
+    rb = sub.add_parser("rollback", help="restore a previous adapter")
+    rb.add_argument("--layer", default="postcorr", choices=LAYERS)
+    rb.add_argument("--to", type=int, help="version number")
+    rb.set_defaults(func=cmd_rollback)
+
+    sub.add_parser("adapters", help="adapter versions and which is promoted"
+                   ).set_defaults(func=cmd_adapters)
     sub.add_parser("stats", help="store metrics").set_defaults(func=cmd_stats)
     sub.add_parser("doctor", help="versions and config").set_defaults(func=cmd_doctor)
 

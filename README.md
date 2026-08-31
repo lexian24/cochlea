@@ -83,7 +83,7 @@ do regardless of what any test says. Two of them are enforced by CI.
 ```sh
 git clone https://github.com/lexian24/cochlea && cd cochlea
 pip install -e ".[dev]"        # add ,zh for Mandarin support: ".[dev,zh]"
-pytest -q                      # 65 tests
+pytest -q                      # 92 tests
 ```
 
 Seed a lexicon from your own git history — this is the real first step of the
@@ -106,8 +106,20 @@ phonetic backends  en, zh (fallback: edit-distance)
 base model         none (M0 not implemented)
 ```
 
-`dictate train`, `eval`, `rebuild`, `rollback` and `profile` will tell you which
-milestone they arrive at rather than failing obscurely.
+The evaluation harness works today — it is what gates every future training
+run, so it had to exist first:
+
+```console
+$ dictate holdout                  # reserve a share, permanently, from training
+reserved 5 new item(s) at rotation 'r0'
+
+$ dictate eval                     # holdout metrics and the gate decision
+$ dictate adapters                 # versions, and which one is promoted
+$ dictate rollback --layer postcorr
+```
+
+`dictate train`, `rebuild` and `profile` tell you which milestone they arrive
+at rather than failing obscurely.
 
 ## Roadmap
 
@@ -116,7 +128,7 @@ milestone they arrive at rather than failing obscurely.
 | **M0** | Competitive dictation, zero learning | not started |
 | **M1** | Correction capture | core built, no UI |
 | **M2** | Lexicon and biasing | extraction built, no decode-time biasing |
-| **M3** | Evaluation harness — gates all training | not started |
+| **M3** | Evaluation harness — gates all training | **built** (no transcriber to score yet) |
 | **M4** | Post-correction LM | not started |
 | **M5** | Acoustic adapter (opt-in) | not started |
 | **M6** | Profiles and community adapters | not started |

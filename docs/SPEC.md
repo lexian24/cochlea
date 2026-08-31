@@ -802,5 +802,18 @@ variance cannot be derived from a metaphone key, which is a constraint on F5
 and F6 that the brief does not anticipate. Both now use explicit rules, and F5's
 homophone table is documented as wanting a real pronouncing dictionary.
 
+M3 is also implemented: rolling holdout reservation and rotation, the three
+metrics with WER reported but non-gating, the promotion gate, adapter
+versioning with retention, and automatic rollback on regression. Its stated
+acceptance criterion — a deliberately corrupted adapter caught by the gate and
+rolled back with no user intervention — is executed by
+`tests/test_adapters.py`. This ordering is deliberate: invariant 9 forbids any
+training layer shipping before its gate exists, so M3 is the prerequisite for
+M4, M5 and M6 and is the only one of them buildable without Apple Silicon.
+
+The harness takes a `Transcriber` protocol rather than loading a model, which
+is what keeps the gate testable on any platform and keeps M3 genuinely ahead of
+M4/M5 instead of entangled with them.
+
 M0 remains unimplemented, and with it the entire capture path. Nothing here
 transcribes audio.
