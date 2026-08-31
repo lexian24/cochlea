@@ -1,13 +1,15 @@
 # cochlea — macOS app (M0)
 
-> ## ⚠️ This code has never been compiled.
+> ## Builds, but has never been run.
 >
-> It was written on Linux, where no Swift toolchain, no macOS SDK and no Apple
-> Silicon are available. Nothing here has been built, run, linted, or tested.
-> **Assume it does not compile until you have compiled it.**
+> Written on Linux with no Swift toolchain — every line was unverified until CI
+> built it. It now **compiles on macOS 14 (Swift 5.10, arm64) and its 13 tests
+> pass**, checked by the `macos-app` job.
 >
-> The Python package in this repository is the opposite: 92 tests, all
-> executed. Treat that as the trustworthy half and this as a first draft.
+> Compiling is not running. There is no ASR backend, so it cannot transcribe,
+> and nothing here has been exercised with a real microphone, a real hotkey
+> press, or Accessibility permission granted. See
+> [BUILDING.md](BUILDING.md) for what a compiler cannot check.
 
 ## What this is
 
