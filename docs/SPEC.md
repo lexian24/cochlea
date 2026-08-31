@@ -629,9 +629,11 @@ resource guard and scheduler that [F20](#f20--training-competes-with-the-users-w
 specifies at M4). Those two need standing enforcement instead, because nothing
 in a single milestone's test suite would catch their violation:
 
-- **Invariant 4** (text-only mode) is enforced by a CI job that runs the full
-  suite with acoustic retention disabled and the features store absent, from M1
-  onward. It is vacuous at M0, which has no store. Prose in individual milestone
+- **Invariant 4** (text-only mode) is enforced by the `text-only` job in
+  `.github/workflows/ci.yml`, which runs the full suite without the optional
+  language extras and re-runs the persona journeys against a minimal install.
+  The store additionally refuses acoustic features at the boundary rather than
+  merely omitting them, so a violation raises rather than silently persisting. It is vacuous at M0, which has no store. Prose in individual milestone
   acceptance criteria is not sufficient — the brief named text-only mode at M2
   and M5 only, and an invariant that four of seven milestones do not check is
   not an invariant.
@@ -759,35 +761,46 @@ Decisions 1, 2 and 4 close gaps rather than impose taste: each follows from an
 argument the brief itself already makes. Decision 3 follows from 2. Decision 5
 ratifies what §4 already assumed.
 
-**Left open, deliberately:**
+**Settled subsequently:**
 
-6. **The project license is not chosen here.** This is the one item I did not
-   decide, and that is itself the decision. A license is a binding grant made by
-   the copyright holder, not an engineering default, and it is effectively
-   one-way once outside contributions arrive.
-
-   The recommendation is **MIT**, for three reasons. Whisper is MIT, so the
-   default stack carries no copyleft obligation to reconcile. The audience in P2
-   is developers who will vendor pieces of this, and permissive licensing is
-   what that audience expects from a tool in this category. Most importantly it
-   interacts with F23: a community adapter trained on a user's own data is
+6. **The project license is MIT** (`LICENSE`), on the maintainer's decision.
+   The argument is unchanged and worth keeping on the record: Whisper is MIT so
+   the default stack carries no copyleft obligation; P2's audience expects
+   permissive licensing from a tool in this category; and, most importantly, it
+   interacts with F23 — a community adapter trained on a user's own data is
    plausibly a derived work, and a copyleft project license would drag the
    question of what obligations attach to *published adapters* into a pipeline
-   whose entire premise (P5) is that third parties publish them freely. That is
-   a licensing argument to have deliberately, not to inherit by accident.
+   whose entire premise (P5) is that third parties publish them freely.
 
-   This blocks external contribution until resolved, and per F23 it should be
-   settled before M0 rather than at M6, since the project license and the
-   shipped-weights audit have to be consistent with each other.
+   This does not discharge F23. Model weights and corpora carry their own terms
+   independent of the project license, and `LICENSES-MODELS.md` is still
+   required before anything that downloads weights is distributed.
 
 ### Repository state
 
 The first push landed on an empty repository, which makes
 `claude/personalized-dictation-spec-o6s5cn` the repository's default branch —
 GitHub assigns the default to the first branch pushed. There is therefore no
-`main`, and no pull request was opened, because there is no base branch to open
-one against. The maintainer should rename this branch to `main` (or push a
+`main`, and no pull request has been opened, because there is no base branch to
+open one against. The maintainer should rename this branch to `main` (or push a
 `main` and repoint the default) before inviting contributors; doing it now is
-free, and doing it after forks exist is not.
+free, and doing it after forks exist is not. `Formula/cochlea.rb` names `main`
+in its `head` stanza and will not resolve until that rename happens.
 
 The repository is **public**.
+
+### Implementation state
+
+The layers that do not require macOS are implemented and tested: the correction
+store, the F1 attribution filter, the pluggable phonetic backends, the gitlog
+importer with PII redaction, and the lexicon. The persona journeys in
+`tests/test_journeys.py` execute P1, P2, P4, P5 and P6 against them.
+
+Running those journeys against a real repository is what surfaced the defects
+recorded in the second commit — in particular that homophony and orthographic
+variance cannot be derived from a metaphone key, which is a constraint on F5
+and F6 that the brief does not anticipate. Both now use explicit rules, and F5's
+homophone table is documented as wanting a real pronouncing dictionary.
+
+M0 remains unimplemented, and with it the entire capture path. Nothing here
+transcribes audio.

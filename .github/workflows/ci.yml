@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev,zh]"
+      - name: Configure a git identity for the importer tests
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name CI
+      - run: pytest -q
+
+  text-only:
+    # SPEC invariant 4: text-only mode is fully functional at every milestone.
+    # The brief names it at M2 and M5 only, so it is enforced here instead of
+    # in per-milestone prose. Runs without the optional zh extra as well, so a
+    # minimal install is covered.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: |
+          git config --global user.email ci@example.com
+          git config --global user.name CI
+      - name: Full suite with no acoustic path and no optional backends
+        env:
+          COCHLEA_TEXT_ONLY: "1"
+        run: pytest -q
+      - name: Persona journeys must pass in a minimal install
+        run: pytest -q tests/test_journeys.py
