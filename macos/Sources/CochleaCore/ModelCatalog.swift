@@ -54,12 +54,14 @@ public enum ModelCatalog {
         repositoryID: "mlx-community/whisper-large-v3-turbo",
         license: "MIT",
         melBins: 128,
-        approximateBytes: 1_600_000_000,
-        // Empty: this build could not reach the provider to obtain real
-        // digests, and inventing one would make every download fail as a
-        // checksum mismatch that reads like corruption. Populate with
-        // scripts/pin-model.sh before distributing. (D2)
-        pinnedSHA256: [:]
+        approximateBytes: 1_613_977_612,
+        // Pinned with scripts/pin-model.sh against huggingface.co, which D2
+        // required before distribution and which the build environment this
+        // was first written in could not reach. (D4)
+        pinnedSHA256: [
+            "config.json": "b34fc29e4e11e0a25e812775dd67f4dd16fc2c8eb43d28ae25ff7d660ecb6379",
+            "weights.safetensors": "951ed3fc1203e6a62467abb2144a96ce7eafca8fa77e3704fdb8635ff3e7f8a6",
+        ]
     )
 
     /// A smaller default for constrained machines, per F19's note about
@@ -69,8 +71,11 @@ public enum ModelCatalog {
         repositoryID: "mlx-community/whisper-small-mlx",
         license: "MIT",
         melBins: 80,
-        approximateBytes: 500_000_000,
-        pinnedSHA256: [:]
+        approximateBytes: 481_307_592,
+        pinnedSHA256: [
+            "config.json": "e8f58e638208af66d5d5d67801259dc7a12d199e971967a9f9d33a8e3635668e",
+            "weights.npz": "55b6674c9b339702d486e2b1573839a66f8ec8f821ed2886993ef717a86b09f5",
+        ]
     )
 
     public static let known: [ModelDescriptor] = [whisperLargeV3Turbo, whisperSmall]

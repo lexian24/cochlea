@@ -75,11 +75,11 @@ public actor ModelResolver {
             guard let filename = entry["rfilename"] as? String else { continue }
             guard Self.isNeeded(filename) else { continue }
 
-            let resolvedDigest = (entry["lfs"] as? [String: Any])?["oid"] as? String
+            let resolvedDigest = Self.providerDigest(from: entry)
             let size = (entry["size"] as? NSNumber)?.int64Value
                 ?? ((entry["lfs"] as? [String: Any])?["size"] as? NSNumber)?.int64Value
                 ?? 0
-            let pinned = model.pinnedSHA256[filename]
+            let pinned = model.pinnedSHA256[filename]?.lowercased()
             let url = URL(string:
                 "https://huggingface.co/\(model.repositoryID)/resolve/main/\(filename)")!
             files.append(RemoteFile(
@@ -94,6 +94,37 @@ public actor ModelResolver {
             throw ModelResolutionError.noWeightsFound(repository: model.repositoryID)
         }
         return files
+    }
+
+    /// The SHA-256 an LFS-tracked file is published under, if the provider
+    /// gives one.
+    ///
+    /// Two HuggingFace endpoints spell the same value differently: the
+    /// `?blobs=true` model endpoint this resolver calls puts it in
+    /// `lfs.sha256`, while `paths-info` puts it in `lfs.oid`. Accept either,
+    /// so a change of endpoint is not a silent loss of verification.
+    ///
+    /// The *top-level* `oid` is deliberately not consulted. For a file git
+    /// stores directly — `config.json` in every mlx-community Whisper repo —
+    /// it is the git blob SHA-1: 40 hex characters, not 64, and not a digest
+    /// of the file's contents at all. Reading it would turn every download
+    /// into a checksum mismatch that reads like file corruption, which is the
+    /// precise failure D2 refused to ship a fabricated digest for. The width
+    /// check is what keeps that from happening.
+    ///
+    /// A non-LFS file therefore has no resolvable digest from any provider
+    /// endpoint, and can only be verified by being pinned. See D4.
+    static func providerDigest(from entry: [String: Any]) -> String? {
+        guard let lfs = entry["lfs"] as? [String: Any] else { return nil }
+        guard let candidate = (lfs["sha256"] as? String) ?? (lfs["oid"] as? String)
+        else { return nil }
+        guard isSHA256(candidate) else { return nil }
+        return candidate.lowercased()
+    }
+
+    /// 64 hex characters. Deliberately strict: the point is to reject a SHA-1.
+    static func isSHA256(_ value: String) -> Bool {
+        value.count == 64 && value.allSatisfy(\.isHexDigit)
     }
 
     static func isWeights(_ filename: String) -> Bool {

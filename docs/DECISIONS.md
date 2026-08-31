@@ -52,7 +52,10 @@ to the model that produced them.
 
 ## D2 — Model checksums are resolved, not hardcoded (for now)
 
-**Status:** decided, with a known weakness.
+**Status:** superseded by [D4](#d4--the-provider-digests-are-pinned-and-the-resolver-that-read-them-was-broken).
+The digests are now pinned, and the resolved-mode fallback this record
+describes was found to have never worked. Kept for the reasoning, which
+still holds; read D4 for what is true now.
 
 **Context.** F21 requires first-run model download with checksum verification.
 A checksum must be *known* to be pinned, and the environment this was built in
@@ -118,3 +121,81 @@ The correction store stays as it is.
 frequent and materially better than what the Mac captures. That is measurable
 once stage 1 reports a real corrections-per-100-words figure (M1), so the
 question can be answered with data rather than intuition.
+
+---
+
+## D4 — The provider digests are pinned, and the resolver that read them was broken
+
+**Status:** decided. Supersedes the "for now" in [D2](#d2--model-checksums-are-resolved-not-hardcoded-for-now).
+
+**Context.** D2 left `pinnedSHA256` empty because the environment the app was
+written in could not reach huggingface.co, and recorded that pinning was
+required before distributing a build that downloads weights. This was done on
+a machine with access. Doing it surfaced a defect that no amount of reading
+would have found.
+
+**What was broken.** `ModelResolver.resolve` read the digest from
+`entry["lfs"]["oid"]`. The `?blobs=true` endpoint it calls does not use that
+key — it publishes the digest as `lfs.sha256`. So `resolvedDigest` was `nil`
+for every file, and with `pinnedSHA256` also empty, every `RemoteFile` carried
+`sha256: nil`. `ModelDownloader.ensureAvailable` refuses a file with no digest
+(`noDigestAvailable`, correctly — F21 says do not install unverified weights),
+and it checks that first, before downloading anything.
+
+The consequence is worth stating plainly: **the first-run model download could
+never have succeeded.** Not "was weaker than pinned mode" — it threw on the
+first file, every time. D2 described resolved mode as trust-on-first-use, which
+implied it worked and was merely weaker. It did not work at all. The same bug
+sat in `scripts/pin-model.sh`, which is why the script that would have revealed
+it reported "no files with digests found" instead.
+
+Both were unreachable without network access, and both were invisible to CI,
+which compiles but does not resolve.
+
+**Decision.**
+
+1. `ModelResolver.providerDigest(from:)` accepts `lfs.sha256` *or* `lfs.oid`.
+   The two HuggingFace endpoints spell the same value differently — the model
+   endpoint uses `sha256`, `paths-info` uses `oid` — and accepting both means a
+   change of endpoint is not a silent loss of verification.
+2. The **top-level** `oid` is never consulted, and a width check enforces it.
+   For a file git stores directly that field is the blob SHA-1: 40 hex
+   characters, not a digest of the contents. Reading it would fail every
+   download as a checksum mismatch that reads like file corruption — precisely
+   the outcome D2 refused to ship a fabricated digest for. Rejecting it is a
+   64-hex-character check, not a special case.
+3. Digests are normalised to lowercase on both sides, because
+   `ModelDownloader` formats its computed hash with `%02x` and an uppercase
+   expectation would mismatch a byte-identical file.
+4. Both catalogued models are pinned, weights and `config.json`.
+
+**On `config.json`, which is the part that is not clean.** No HuggingFace
+endpoint publishes a SHA-256 for a file that is not LFS-tracked, and
+`config.json` is not LFS-tracked in any mlx-community Whisper repo. `paths-info`
+offers only the git blob SHA-1. So `scripts/pin-model.sh` fetches those files
+and hashes them locally.
+
+That origin is trust-on-first-use — the same weakness D2 named. What changes is
+not the fetch but the destination: the digest lands in a diff, gets reviewed,
+and is thereafter verified against a committed value rather than against
+whatever the API says today. That is the whole of what pinning buys, and it is
+worth being exact that it does not retroactively authenticate the first fetch.
+
+A second consequence follows and should not be lost: an **unpinned** model still
+cannot be installed, because its `config.json` will resolve to a nil digest and
+the downloader will refuse it. That is the correct behaviour under F21 and it is
+now the *only* behaviour. Adding a model to `ModelCatalog` therefore means
+running `scripts/pin-model.sh` for it — a test asserts every catalogued model is
+pinned, so this fails loudly rather than at a user's first run.
+
+**Verified, not assumed.** Resolution and download were executed against
+huggingface.co on Apple Silicon: both models resolve with a digest on every
+file; `config.json` downloads and matches its pinned digest; and a deliberately
+wrong digest is rejected with the download discarded. The weights themselves
+were not downloaded — 1.6 GB — so the resumable large-file path and its `Range`
+handling remain unexercised.
+
+**What would reverse this.** Nothing about the key names, which are observed
+behaviour. If HuggingFace begins publishing content digests for non-LFS files,
+`config.json` could be resolved rather than pinned, and the local-hashing branch
+of `pin-model.sh` could go.

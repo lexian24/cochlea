@@ -122,8 +122,9 @@ source and the formula's version assertion cannot drift from it.
 - **The macOS app.** M0 is an uncompiled Swift draft. A `.app` ships through a
   Homebrew **cask**, not this formula.
 - **Model weights.** Per F21 a formula never ships a 1.6 GB model. The default
-  model is decided ([D1](DECISIONS.md)) but its checksums are not pinned
-  ([D2](DECISIONS.md)) and no ASR backend exists yet.
+  model is decided ([D1](DECISIONS.md)) and its checksums are now pinned
+  ([D4](DECISIONS.md)), but no ASR backend exists yet, so nothing consumes the
+  download.
 
 ## Still blocking a real product release
 
@@ -131,5 +132,8 @@ source and the formula's version assertion cannot drift from it.
   and Microphone access is blocked by Gatekeeper. Required before M0 ships.
 - **F23, model licensing.** Whisper is MIT, which is why it was chosen, but
   `LICENSES-MODELS.md` still has to exist before anything downloads weights.
-- **D2, checksum pinning.** Run `scripts/pin-model.sh` somewhere with network
-  access to huggingface.co and commit the digests.
+- **An ASR backend.** Nothing conforms to `Transcriber`, so the app cannot
+  transcribe. See [macos/BUILDING.md](../macos/BUILDING.md).
+
+Checksum pinning, which stood here as a blocker under D2, is done
+([D4](DECISIONS.md)).

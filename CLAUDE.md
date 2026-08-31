@@ -49,10 +49,13 @@ Violating any of these is a bug regardless of what the tests say. Full list in
 
 ## Things that look wrong but are deliberate
 
-- **`ModelCatalog.pinnedSHA256` is empty.** See DECISIONS D2. Do not invent a
-  digest — a wrong one fails every download as a checksum mismatch that reads
-  like file corruption. Run `scripts/pin-model.sh` on a machine with network
-  access to huggingface.co and commit the result.
+- **Digest parsing reads `lfs.sha256`, never the top-level `oid`.** See
+  DECISIONS D4. The top-level field is a git blob SHA-1 and pinning one fails
+  every download as a checksum mismatch that reads like file corruption; the
+  64-hex-character width check is what prevents it. Adding a model to
+  `ModelCatalog` means running `scripts/pin-model.sh <repo-id>` for it — an
+  unpinned model cannot install, because its non-LFS `config.json` has no
+  digest any provider endpoint will give you.
 - **The app refuses to transcribe rather than returning placeholder text.**
   Typing invented words at the user's cursor is worse than typing nothing.
 - **Homophony and orthographic variants use explicit tables, not the metaphone

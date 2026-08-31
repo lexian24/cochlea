@@ -95,10 +95,11 @@ take WhisperKit to get M0 shipped, record it as a decision and note what it
 costs M5 — do not let it become an accident.
 
 `ModelCatalog` carries the descriptor; `ModelResolver` resolves the file list
-and digests from HuggingFace. Checksums are **not pinned** — see
-[D2](../docs/DECISIONS.md). Run `scripts/pin-model.sh
-mlx-community/whisper-large-v3-turbo` on your machine and commit the result;
-this repo was built somewhere that could not reach huggingface.co.
+and digests from HuggingFace. Both catalogued models are **pinned**, and the
+resolve-and-verify path has been run against the live provider — see
+[D4](../docs/DECISIONS.md), which also records the bug that made first-run
+download impossible until it was run somewhere with network access. Adding a
+model means running `scripts/pin-model.sh <repo-id>` for it.
 
 ## Before it ships to anyone
 
