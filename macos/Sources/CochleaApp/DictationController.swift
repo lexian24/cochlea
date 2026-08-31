@@ -82,6 +82,11 @@ public final class DictationController {
         // time. Failure here is not fatal; it surfaces on first use instead —
         // but it is logged, because "the first press was slow" and "the helper
         // never started" look identical from the outside otherwise.
+        // The audio graph's first-touch cost lands between key-down and the
+        // microphone opening, where it eats the first word. Same reasoning as
+        // the model warm-up below; it prompts for nothing.
+        capture.prewarm()
+
         if configuration.keepModelResident {
             Task.detached { [transcriber] in
                 let started = Date()
@@ -116,11 +121,11 @@ public final class DictationController {
 
         // Invariant 8: both permissions are requested here, on first use of the
         // feature that needs them, never at launch.
+        // Measured explicitly rather than with a `defer`: a deferred timer
+        // fires at function exit, so it reported the whole of beginListening
+        // and read identically to the total below — two numbers that always
+        // agree measure one thing, not two.
         let beforePermissions = Date()
-        defer {
-            let cost = Int(Date().timeIntervalSince(beforePermissions) * 1000)
-            if cost > 100 { Diagnostics.log("timing", "permission checks: \(cost) ms") }
-        }
         guard await AudioCapture.requestPermission() else {
             note("permission", AudioCapture.CaptureError.permissionDenied.description)
             state = .failed(AudioCapture.CaptureError.permissionDenied.description)
@@ -135,6 +140,11 @@ public final class DictationController {
             note("permission", message)
             state = .failed(message)
             return
+        }
+
+        let permissionMillis = Int(Date().timeIntervalSince(beforePermissions) * 1000)
+        if permissionMillis > 50 {
+            Diagnostics.log("timing", "permission checks: \(permissionMillis) ms")
         }
 
         segmenter.reset()

@@ -45,6 +45,31 @@ public final class AudioCapture {
         AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
 
+    /// Pay the audio graph's one-time setup cost at launch instead of on the
+    /// first hotkey press.
+    ///
+    /// Measured: the first `inputNode` access costs ~190-240 ms and every
+    /// access after it is free. On the first press of a session that lands
+    /// between the key going down and the microphone opening, which is time
+    /// the user is already speaking into — the first word of the first
+    /// utterance is simply lost. Doing it at launch is the same fix F19
+    /// applies to the model, for the same reason.
+    ///
+    /// This does **not** open the microphone: no engine is started, no
+    /// recording indicator lights, and no permission is requested — it is
+    /// skipped entirely unless permission has already been granted, so
+    /// invariant 8 holds. Reporting is not requesting.
+    @discardableResult
+    public func prewarm() -> Bool {
+        guard Self.hasPermission else { return false }
+        let began = Date()
+        _ = engine.inputNode.outputFormat(forBus: 0)
+        Diagnostics.log("audio", "graph prewarmed in "
+            + "\(Int(Date().timeIntervalSince(began) * 1000)) ms "
+            + "(microphone not opened)")
+        return true
+    }
+
     /// Asks for microphone access. Call this from the hotkey handler.
     public static func requestPermission() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {

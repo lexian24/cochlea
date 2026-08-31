@@ -77,6 +77,33 @@ nothing below will work. The message names which.
 
 ---
 
+## Already answered
+
+First hand-test, Apple M2 / macOS 26.6.1 / `whisper-small`. Re-run these on
+different hardware — one machine is one data point — but they are no longer
+open questions.
+
+| | Result |
+|---|---|
+| **T1** hotkey key-up | **Passes.** `RegisterEventHotKey` delivers `kEventHotKeyReleased`. Push-to-talk works as built and the `NSEvent` fallback is not needed. |
+| **T2** permissions | **Passes.** Nothing prompts at launch; both prompts arrive on the first press. |
+| **T7** latency | **Passes.** 383–414 ms warm, against a 1000 ms budget. |
+
+Two things that test found, both fixed:
+
+- **The microphone opened 2084 ms after key-down**, so the first two seconds of
+  the utterance were spoken into a microphone that was not open. The bulk was
+  the one-time Accessibility grant; the remainder was the first `inputNode`
+  access at ~190–240 ms, now paid at launch by `AudioCapture.prewarm()`. After
+  both: 366 ms on the first press of a session, 114 ms after. Watch this number
+  on other machines — anything approaching a second clips a word.
+- **An English sentence transcribed as Malay.** Whisper detects language from
+  the first window, and a clipped window is read as whatever it most resembles
+  — then the *whole* window is mistranscribed, not just the missing part.
+  Setting `"language": "en"` fixed it and removed 182 ms (D6).
+
+---
+
 ## T1 — Does the hotkey report key-up? (the one that matters)
 
 `HotkeyMonitor` assumes `RegisterEventHotKey` delivers `kEventHotKeyReleased`.
