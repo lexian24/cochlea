@@ -133,8 +133,15 @@ We observe errors, not successes. "No edit" is weak evidence of correctness —
 the user may not have noticed or may have fixed it elsewhere.
 
 **Mitigation:** treat un-edited utterances as weak positives with lower sample
-weight. Do not treat them as gold labels. *(No milestone assigned in the brief
-— see [Appendix A](#appendix-a-failure-mode--milestone-traceability).)*
+weight. Do not treat them as gold labels. **M4, recurring at M5.**
+
+*Assigned during handoff; the brief left this one unnumbered. F4 and
+[F3](#f3--catastrophic-forgetting) are the same code path: F3's replay buffer
+mixes corrected utterances with "accepted-as-correct" ones, and the
+accepted-as-correct pool **is** the un-edited set. The sample weight F4 asks for
+is set exactly where that buffer is composed, so it lands with the first trainer
+(M4) and must be re-applied when the acoustic trainer arrives (M5). Building the
+replay buffer without it is the bug F4 describes.*
 
 #### F5 — Homophones cannot be fixed by lexicon
 
@@ -276,9 +283,14 @@ difference. **M4.**
 A multi-second delay on the first hotkey press feels broken.
 
 **Mitigation:** keep the model resident; warm it at launch. Accept the RAM cost
-and document it. Offer a smaller model for constrained machines. *(No milestone
-assigned in the brief — see
-[Appendix A](#appendix-a-failure-mode--milestone-traceability).)*
+and document it. Offer a smaller model for constrained machines. **M0.**
+
+*Assigned during handoff; the brief left this one unnumbered. Residency is a
+process-model decision, not a later optimization — a design that loads on demand
+cannot have warm-up bolted on without restructuring. It also sits directly
+under M0's latency bar and under [F24](#f24--scope): the first hotkey press is
+the first thing a new user experiences, and "feels broken" at that moment costs
+the retention every downstream milestone depends on.*
 
 #### F20 — Training competes with the user's work
 
@@ -487,6 +499,18 @@ dictate purge [--audio|--all]
 dictate doctor                      # versions, config hash, recent eval scores
 ```
 
+**Naming.** Settled during handoff: the product, repository and Homebrew formula
+are `cochlea`; the CLI binary is `dictate`. Formula name and binary name differ,
+which Homebrew supports and which has precedent (`ripgrep` installs `rg`). The
+brief writes `dictate` throughout, so this records the intent already on the
+page rather than changing it.
+
+One check this forces before M0's formula is written: `dictate` is a generic
+verb and a plausible collision in `$PATH`. Confirm it is unclaimed in
+homebrew-core and by any tool the target audience is likely to have installed.
+If it is taken, the binary — not the product — is what gets renamed, and doing
+that after an install path exists is a user-visible migration.
+
 ---
 
 ## 5. Milestones
@@ -500,9 +524,13 @@ download on first run with checksum verification. Homebrew formula. Menu bar
 presence. No correction capture, no training, no importers.
 
 **Acceptance:** median end-to-end latency under 1s for a 10-second utterance on
-M-series. Works in a terminal, an editor, and a browser text field without
-mangling input. Accuracy indistinguishable from running whisper.cpp directly.
-Signing and notarization resolved
+M-series, measured warm. First-invocation latency after launch is bounded
+separately and must not exceed the warm median by more than a stated margin —
+one number cannot cover both, and reporting only the warm median hides exactly
+the failure [F19](#f19--model-load-time-on-first-invocation) describes. Works in
+a terminal, an editor, and a browser text field without mangling input. Accuracy
+indistinguishable from running whisper.cpp directly. Signing and notarization
+resolved
 ([F22](#f22--gatekeeper-blocks-an-unsigned-app-requesting-accessibility-and-full-disk-access)).
 
 ### M1 — Correction capture
@@ -591,6 +619,29 @@ Violating any of these is a bug regardless of test results.
 6. Training never blocks or degrades dictation.
 7. Acoustic retention is opt-in and defaults to off.
 8. No permission is requested before the feature that needs it is invoked.
+9. No training layer ships before its eval gate exists.
+
+### Enforcement
+
+Every invariant except 4 and 9 is a property of one code path or subsystem, and
+is tested where that path lives (invariant 6, for example, is enforced by the
+resource guard and scheduler that [F20](#f20--training-competes-with-the-users-work)
+specifies at M4). Those two need standing enforcement instead, because nothing
+in a single milestone's test suite would catch their violation:
+
+- **Invariant 4** (text-only mode) is enforced by a CI job that runs the full
+  suite with acoustic retention disabled and the features store absent, from M1
+  onward. It is vacuous at M0, which has no store. Prose in individual milestone
+  acceptance criteria is not sufficient — the brief named text-only mode at M2
+  and M5 only, and an invariant that four of seven milestones do not check is
+  not an invariant.
+- **Invariant 9** was promoted during handoff from the title of
+  [M3](#m3--evaluation-harness--must-precede-any-training), which reads "must
+  precede any training." Milestone ordering is a plan, and plans slip under
+  schedule pressure; an invariant does not. Given that
+  [F14](#f14--a-bad-training-run-silently-degrades-the-daily-driver) is
+  described as the trust-killing failure, the constraint protecting against it
+  should not be enforced only by the order chapters appear in.
 
 ---
 
@@ -620,7 +671,7 @@ modes it is supposed to close.
 | F1 | Revision mistaken for correction | M1 |
 | F2 | Biasing over-triggers, creates new errors | M2 |
 | F3 | Catastrophic forgetting | M4 |
-| F4 | Survivorship bias in the signal | **not assigned** |
+| F4 | Survivorship bias in the signal | M4, recurring at M5 † |
 | F5 | Homophones cannot be fixed by lexicon | M2 |
 | F6 | Inconsistent orthography in user's own data | M2 |
 | F7 | Audio/mel store is a rolling record of everything | M5 |
@@ -635,25 +686,31 @@ modes it is supposed to close.
 | F16 | Eval set overfitting | M3 |
 | F17 | WER is the wrong metric | M3 |
 | F18 | Layer stacking adds latency | M4 |
-| F19 | Model load time on first invocation | **not assigned** |
+| F19 | Model load time on first invocation | M0 † |
 | F20 | Training competes with the user's work | M4 |
 | F21 | Homebrew formula cannot ship a 1.6GB model | M0 |
 | F22 | Gatekeeper blocks unsigned app | before M0 ships |
 | F23 | Licensing on models and data | before any community adapter ships |
 | F24 | Scope | M0 |
 
+† Assigned during handoff; the brief left these two unnumbered. Reasoning is
+recorded at [F4](#f4--survivorship-bias-in-the-signal) and
+[F19](#f19--model-load-time-on-first-invocation).
+
 ### Per-milestone rollup
 
 | Milestone | Failure modes it must close |
 |-----------|------------------------------|
-| M0 | F21, F22 (pre-ship), F24 |
+| M0 | F19, F21, F22 (pre-ship), F24 |
 | M1 | F1 |
 | M2 | F2, F5, F6, F8, F9 |
 | M3 | F14 (gate defined), F15, F16, F17 |
-| M4 | F3, F13, F14 (gate enforced), F18, F20 |
-| M5 | F7, F10 |
+| M4 | F3, F4, F13, F14 (gate enforced), F18, F20 |
+| M5 | F4 (re-applied), F7, F10 |
 | M6 | F11, F12, F23 |
-| — | F4, F19 |
+
+Every failure mode now has a milestone. If a future entry is added without one,
+that is the gap to catch in review.
 
 ---
 
@@ -674,31 +731,63 @@ it in the repository were mechanical:
 No prose was reworded and no engineering decision was altered, added, or
 removed.
 
-### Gaps noticed on the handoff read
+### Decisions taken on the handoff read
 
-Flagged for the maintainer to resolve. These are observations, not decisions —
-nothing downstream in this document assumes an answer.
+The brief left six things unresolved. Five are settled here, with reasoning at
+the point of change; one is deliberately left to the copyright holder.
 
-1. **F4 and F19 carry no milestone.** Every other entry does. F4
-   (survivorship bias → sample weighting) is a training-time concern and has no
-   home before a trainer exists; F19 (model warm-up) is an M0-shaped concern
-   that M0's acceptance criteria do not mention. Both should be assigned or
-   explicitly deferred, so the per-milestone rollup above is complete.
-2. **Project name vs. binary name.** The repository is `cochlea`; the CLI in §4
-   is `dictate`. Both may be intended (product vs. command, as with `ripgrep`/`rg`),
-   but the Homebrew formula name, the binary name, and the menu bar app name
-   need to be settled before M0's formula is written — renaming after a
-   `brew install` path exists is a migration for users.
-3. **No project license is chosen.** Distinct from F23, which covers model and
-   dataset licenses. "Open-source" is asserted in the opening line but no
-   license is named. This blocks external contribution, and the choice
-   interacts with F23 — a copyleft project license plus restrictively-licensed
-   shipped weights is a combination worth checking before M0 rather than at M6.
-4. **Invariant 4 ("text-only mode is fully functional at every milestone")
-   has no corresponding acceptance criterion at M0, M3, M5, or M6.** M2 and M5
-   name it explicitly. If it is to be enforced as an invariant, it wants a
-   standing test in CI rather than per-milestone prose.
-5. **The M3-before-training ordering is stated in the milestone title but not
-   in the invariants.** Given F14 is described as the trust-killing failure,
-   "no training layer ships before its eval gate exists" may deserve to be
-   invariant 9 rather than relying on milestone sequencing.
+**Settled:**
+
+1. **F4 assigned to M4, recurring at M5.** F4 and F3 are one code path — the
+   replay buffer's "accepted-as-correct" pool is the un-edited set, and F4's
+   sample weight is set where that buffer is composed.
+2. **F19 assigned to M0.** Model residency is a process-model decision that
+   cannot be retrofitted, and it sits under both M0's latency bar and F24's
+   retention argument.
+3. **M0 acceptance split into warm and cold latency.** A single "median under
+   1s" measured warm hides precisely the first-press failure F19 describes.
+   Consequence of decision 2.
+4. **Invariant 9 added** — no training layer ships before its eval gate exists.
+   Promoted out of M3's title, because milestone ordering is a plan that slips
+   and F14 is described as the trust-killing failure.
+5. **Naming settled** — product, repository and formula are `cochlea`; the CLI
+   binary is `dictate`, as the brief already writes it throughout. Records
+   existing intent rather than changing it, and flags the `$PATH` collision
+   check that must happen before M0's formula is written.
+
+Decisions 1, 2 and 4 close gaps rather than impose taste: each follows from an
+argument the brief itself already makes. Decision 3 follows from 2. Decision 5
+ratifies what §4 already assumed.
+
+**Left open, deliberately:**
+
+6. **The project license is not chosen here.** This is the one item I did not
+   decide, and that is itself the decision. A license is a binding grant made by
+   the copyright holder, not an engineering default, and it is effectively
+   one-way once outside contributions arrive.
+
+   The recommendation is **MIT**, for three reasons. Whisper is MIT, so the
+   default stack carries no copyleft obligation to reconcile. The audience in P2
+   is developers who will vendor pieces of this, and permissive licensing is
+   what that audience expects from a tool in this category. Most importantly it
+   interacts with F23: a community adapter trained on a user's own data is
+   plausibly a derived work, and a copyleft project license would drag the
+   question of what obligations attach to *published adapters* into a pipeline
+   whose entire premise (P5) is that third parties publish them freely. That is
+   a licensing argument to have deliberately, not to inherit by accident.
+
+   This blocks external contribution until resolved, and per F23 it should be
+   settled before M0 rather than at M6, since the project license and the
+   shipped-weights audit have to be consistent with each other.
+
+### Repository state
+
+The first push landed on an empty repository, which makes
+`claude/personalized-dictation-spec-o6s5cn` the repository's default branch —
+GitHub assigns the default to the first branch pushed. There is therefore no
+`main`, and no pull request was opened, because there is no base branch to open
+one against. The maintainer should rename this branch to `main` (or push a
+`main` and repoint the default) before inviting contributors; doing it now is
+free, and doing it after forks exist is not.
+
+The repository is **public**.

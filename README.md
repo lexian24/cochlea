@@ -46,10 +46,14 @@ Violating any of these is a bug regardless of test results. Full text in
 6. Training never blocks or degrades dictation.
 7. Acoustic retention is opt-in and defaults to off.
 8. No permission is requested before the feature that needs it is invoked.
+9. No training layer ships before its eval gate exists.
 
 ## Licensing
 
-The project license is not yet chosen — see the open questions in the spec.
+**The project license is not yet chosen.** Until it is, this code carries no
+grant and external contribution is blocked. The spec recommends MIT and explains
+why in [Appendix B](docs/SPEC.md#decisions-taken-on-the-handoff-read); the choice
+is the copyright holder's to make.
 
 Model weights and training corpora carry their own terms, several of which are
 not MIT and some of which impose conditions on distributing derived adapters.
