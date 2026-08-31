@@ -28,6 +28,7 @@ public enum TranscriberFactory {
         }
         return SidecarTranscriber(executable: executable,
                                   modelDirectory: modelDirectory,
-                                  identifier: configuration.modelIdentifier)
+                                  identifier: configuration.modelIdentifier,
+                                  language: configuration.language)
     }
 }

@@ -18,13 +18,17 @@ public actor SidecarTranscriber: Transcriber {
 
     private let executable: URL
     private let modelDirectory: URL
+    /// nil detects per window; an ISO code pins it. See Configuration.language.
+    private let language: String?
     private let io = SidecarIO()
     private var child: Process?
 
-    public init(executable: URL, modelDirectory: URL, identifier: String) {
+    public init(executable: URL, modelDirectory: URL, identifier: String,
+                language: String? = nil) {
         self.executable = executable
         self.modelDirectory = modelDirectory
         self.identifier = identifier
+        self.language = language
     }
 
     /// Where `dictate` is likely to be, in the order worth trying.
@@ -62,9 +66,10 @@ public actor SidecarTranscriber: Transcriber {
     public func transcribe(samples: [Float]) async throws -> TranscriptionResult {
         try await ensureRunning()
         let started = Date()
+        var message: [String: Any] = ["op": "transcribe", "samples": samples.count]
+        if let language { message["language"] = language }
         let reply = try await io.request(
-            ["op": "transcribe", "samples": samples.count],
-            payload: SidecarIO.encode(samples: samples))
+            message, payload: SidecarIO.encode(samples: samples))
         let text = reply["text"] as? String ?? ""
         // Prefer the child's own measurement: it excludes pipe transit, which
         // is what F18's budget is actually about.

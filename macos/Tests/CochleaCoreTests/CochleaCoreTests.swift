@@ -63,6 +63,16 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertFalse(decoded.acousticRetentionEnabled)   // invariant 7
     }
 
+    func testLanguageIsUnsetUnlessTheConfigSaysOtherwise() throws {
+        // Unset means detect per window, which is what P1's code-switching
+        // needs. Detection costs 182 ms an utterance and mis-fires on short or
+        // clipped input, so anyone who does not switch languages should pin it.
+        XCTAssertNil(Configuration(home: URL(fileURLWithPath: "/tmp/x")).language)
+        let decoded = try JSONDecoder().decode(
+            Configuration.self, from: Data("{\"language\": \"en\"}".utf8))
+        XCTAssertEqual(decoded.language, "en")
+    }
+
     func testAnEmptyConfigLeavesAcousticRetentionOff() throws {
         // Invariant 7: the default is off, so a config that says nothing must
         // leave it off.

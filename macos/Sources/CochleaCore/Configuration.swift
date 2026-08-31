@@ -34,6 +34,16 @@ public struct Configuration: Codable, Sendable {
     /// Invariant 7. Flipping this is a user action, never a default.
     public var acousticRetentionEnabled: Bool = false
 
+    /// Force a language instead of letting Whisper detect one.
+    ///
+    /// `nil` detects per 30-second window, which is what P1's code-switching
+    /// needs and what a monolingual user pays for: detection reads a short or
+    /// clipped utterance as whatever language it most resembles, and a wrong
+    /// guess mistranscribes the whole window rather than a word of it. An
+    /// ISO code here ("en", "zh") removes that failure for anyone who does not
+    /// need the switching.
+    public var language: String?
+
     /// F18 latency budget, in milliseconds, for a typical utterance.
     public var latencyBudgetMillis: Int = 1000
 
@@ -51,7 +61,7 @@ public struct Configuration: Codable, Sendable {
     /// lives is not one of them.
     private enum CodingKeys: String, CodingKey {
         case mode, modelIdentifier, keepModelResident
-        case acousticRetentionEnabled, latencyBudgetMillis
+        case acousticRetentionEnabled, latencyBudgetMillis, language
     }
 
     public init(from decoder: Decoder) throws {
@@ -69,6 +79,7 @@ public struct Configuration: Codable, Sendable {
             Bool.self, forKey: .acousticRetentionEnabled) ?? acousticRetentionEnabled
         latencyBudgetMillis = try values.decodeIfPresent(
             Int.self, forKey: .latencyBudgetMillis) ?? latencyBudgetMillis
+        language = try values.decodeIfPresent(String.self, forKey: .language)
     }
 
     public init(home: URL? = nil) {

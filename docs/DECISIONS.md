@@ -335,3 +335,24 @@ before it is worth making.
 
 Nothing here disturbs D1's *architectural* reasoning: Whisper over SenseVoice
 rests on the biasing argument, not on the variant.
+
+**Addendum: language detection is a measurable cost, not just a correctness
+risk.** Warm, five runs each, same 12.8-second utterance and the same resident
+`whisper-small`:
+
+| `language` | median |
+|---|---|
+| unset (detect) | 657 ms |
+| `"en"` | 475 ms |
+
+Detection is a separate encoder pass over the first window, so pinning the
+language removes 182 ms — 28% — from every utterance. It also removes a
+failure mode observed in testing: a clipped or short utterance gets read as
+whatever language it most resembles, and a wrong guess mistranscribes the
+entire window rather than a word of it. An English sentence came back as
+Malay.
+
+`Configuration.language` therefore exists and defaults to unset. Unset stays
+the default because P1's code-switching needs per-window detection and is the
+maintainer's own journey; anyone who does not switch languages should set it,
+and gets both the accuracy and the 182 ms.

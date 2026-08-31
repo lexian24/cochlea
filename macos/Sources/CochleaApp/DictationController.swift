@@ -74,6 +74,7 @@ public final class DictationController {
             "model dir:   \(configuration.modelsDirectory.appendingPathComponent(configuration.modelIdentifier).path)",
             "microphone:  \(AudioCapture.hasPermission ? "granted" : "not yet granted")",
             "accessibility: \(AccessibilityPermission.isTrusted() ? "granted" : "not yet granted")",
+            "language:    \(configuration.language ?? "auto-detect")",
             "hotkey:      Control-Option-D (hold to talk)",
         ])
 
@@ -107,9 +108,19 @@ public final class DictationController {
 
     private func beginListening() async {
         guard !isCapturing else { return }
+        let pressed = Date()
+        defer {
+            Diagnostics.log("timing", "key down to listening: "
+                + "\(Int(Date().timeIntervalSince(pressed) * 1000)) ms")
+        }
 
         // Invariant 8: both permissions are requested here, on first use of the
         // feature that needs them, never at launch.
+        let beforePermissions = Date()
+        defer {
+            let cost = Int(Date().timeIntervalSince(beforePermissions) * 1000)
+            if cost > 100 { Diagnostics.log("timing", "permission checks: \(cost) ms") }
+        }
         guard await AudioCapture.requestPermission() else {
             note("permission", AudioCapture.CaptureError.permissionDenied.description)
             state = .failed(AudioCapture.CaptureError.permissionDenied.description)

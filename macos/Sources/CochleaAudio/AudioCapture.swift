@@ -60,19 +60,34 @@ public final class AudioCapture {
         }
         self.onFrame = onFrame
 
+        // Timed per phase: audio taken before the microphone is actually open
+        // is audio the user spoke and lost, so any delay here clips the start
+        // of the utterance. Measured in isolation this whole sequence is about
+        // 265 ms; if it is seconds inside the app, the cost is somewhere these
+        // marks will name rather than somewhere anyone has to guess.
+        let began = Date()
+        func elapsed() -> Int { Int(Date().timeIntervalSince(began) * 1000) }
+
         let input = engine.inputNode
+        let afterNode = elapsed()
         let inputFormat = input.outputFormat(forBus: 0)
         guard let converter = AVAudioConverter(from: inputFormat, to: outputFormat) else {
             throw CaptureError.converterUnavailable
         }
         self.converter = converter
+        let afterConverter = elapsed()
 
         input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
             guard let self, let converted = self.convert(buffer) else { return }
             self.onFrame?(converted)
         }
+        let afterTap = elapsed()
         engine.prepare()
         try engine.start()
+        Diagnostics.log("audio", "open in \(elapsed()) ms "
+            + "(node \(afterNode), converter \(afterConverter - afterNode), "
+            + "tap \(afterTap - afterConverter), engine \(elapsed() - afterTap)) "
+            + "@ \(Int(inputFormat.sampleRate)) Hz")
     }
 
     public func stop() {
