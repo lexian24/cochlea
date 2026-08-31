@@ -37,7 +37,39 @@ public struct Configuration: Codable, Sendable {
     /// F18 latency budget, in milliseconds, for a typical utterance.
     public var latencyBudgetMillis: Int = 1000
 
+    /// Deliberately **not** part of the encoded form. See `CodingKeys`.
     public var home: URL
+
+    /// Everything except `home`.
+    ///
+    /// `home` is where `config.json` was found, so decoding it *from*
+    /// `config.json` can only ever produce a value that contradicts the path
+    /// the file was just loaded from. Worse, it makes the file
+    /// machine-specific: a config copied from a README or another Mac points
+    /// the app at a directory that does not exist, and the app dies at launch
+    /// creating it. That happened. The config carries preferences; where it
+    /// lives is not one of them.
+    private enum CodingKeys: String, CodingKey {
+        case mode, modelIdentifier, keepModelResident
+        case acousticRetentionEnabled, latencyBudgetMillis
+    }
+
+    public init(from decoder: Decoder) throws {
+        self.init()                     // home from COCHLEA_HOME, or the default
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        // Every key optional: a config written by an older or newer build, or
+        // hand-edited down to the one line someone cared about, should apply
+        // what it does say rather than being discarded whole.
+        mode = try values.decodeIfPresent(Mode.self, forKey: .mode) ?? mode
+        modelIdentifier = try values.decodeIfPresent(
+            String.self, forKey: .modelIdentifier) ?? modelIdentifier
+        keepModelResident = try values.decodeIfPresent(
+            Bool.self, forKey: .keepModelResident) ?? keepModelResident
+        acousticRetentionEnabled = try values.decodeIfPresent(
+            Bool.self, forKey: .acousticRetentionEnabled) ?? acousticRetentionEnabled
+        latencyBudgetMillis = try values.decodeIfPresent(
+            Int.self, forKey: .latencyBudgetMillis) ?? latencyBudgetMillis
+    }
 
     public init(home: URL? = nil) {
         if let home {

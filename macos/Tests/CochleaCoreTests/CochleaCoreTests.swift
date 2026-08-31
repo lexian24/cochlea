@@ -29,6 +29,47 @@ final class ConfigurationTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Configuration.self, from: data)
         XCTAssertEqual(decoded.mode, .liveStreaming)
     }
+
+    func testHomeIsNeverReadFromTheConfigFile() throws {
+        // A config carrying a home path is machine-specific, and the app has
+        // to know home already in order to have found the file. A config
+        // copied out of a document -- with a "/Users/YOU/" placeholder still
+        // in it -- pointed the app at a directory it could not create, and it
+        // died at launch. Preferences come from the file; location does not.
+        let json = "{\"modelIdentifier\": \"whisper-small\", "
+                 + "\"home\": \"file:///Users/nobody/.cochlea/\"}"
+        let decoded = try JSONDecoder().decode(
+            Configuration.self, from: Data(json.utf8))
+        XCTAssertFalse(decoded.home.path.contains("nobody"))
+        XCTAssertEqual(decoded.modelIdentifier, "whisper-small")
+    }
+
+    func testHomeIsNotEmitted() throws {
+        let data = try JSONEncoder().encode(
+            Configuration(home: URL(fileURLWithPath: "/tmp/cochlea-test")))
+        let text = String(decoding: data, as: UTF8.self)
+        XCTAssertFalse(text.contains("home"),
+                       "writing home back out is what makes the file unportable")
+    }
+
+    func testAPartialConfigAppliesWhatItSays() throws {
+        // Hand-edited down to one line, or written by a different build. Keys
+        // it omits take their defaults rather than the file being discarded.
+        let decoded = try JSONDecoder().decode(
+            Configuration.self, from: Data("{\"latencyBudgetMillis\": 250}".utf8))
+        XCTAssertEqual(decoded.latencyBudgetMillis, 250)
+        XCTAssertEqual(decoded.mode, .commitOnRelease)
+        XCTAssertEqual(decoded.modelIdentifier, ModelCatalog.default.identifier)
+        XCTAssertFalse(decoded.acousticRetentionEnabled)   // invariant 7
+    }
+
+    func testAnEmptyConfigLeavesAcousticRetentionOff() throws {
+        // Invariant 7: the default is off, so a config that says nothing must
+        // leave it off.
+        let decoded = try JSONDecoder().decode(
+            Configuration.self, from: Data("{}".utf8))
+        XCTAssertFalse(decoded.acousticRetentionEnabled)
+    }
 }
 
 final class LatencyRecorderTests: XCTestCase {
