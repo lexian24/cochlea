@@ -84,8 +84,8 @@ do regardless of what any test says. Two of them are enforced by CI.
 
 ```sh
 git clone https://github.com/lexian24/cochlea && cd cochlea
-pip install -e ".[dev]"        # add ,zh for Mandarin support: ".[dev,zh]"
-pytest -q                      # 92 tests
+pip install -e ".[dev,zh,acoustic]"    # zh = Mandarin, acoustic = encryption at rest
+pytest -q                      # 137 tests
 ```
 
 Seed a lexicon from your own git history — this is the real first step of the
@@ -120,20 +120,21 @@ $ dictate adapters                 # versions, and which one is promoted
 $ dictate rollback --layer postcorr
 ```
 
-`dictate train`, `rebuild` and `profile` tell you which milestone they arrive
-at rather than failing obscurely.
+`dictate train` and `rebuild` tell you what is missing (an MLX trainer) rather
+than failing obscurely — the orchestration around them, including the replay
+buffer and the resource gate, is built and tested.
 
 ## Roadmap
 
 | | Milestone | State |
 |---|---|---|
 | **M0** | Competitive dictation, zero learning | draft Swift, **uncompiled**, no ASR backend |
-| **M1** | Correction capture | core built, no UI |
-| **M2** | Lexicon and biasing | extraction built, no decode-time biasing |
+| **M1** | Correction capture | engine built, no UI (needs M0) |
+| **M2** | Lexicon and biasing | extraction + decay built; decode-time biasing needs an ASR |
 | **M3** | Evaluation harness — gates all training | **built** (no transcriber to score yet) |
-| **M4** | Post-correction LM | not started |
-| **M5** | Acoustic adapter (opt-in) | not started |
-| **M6** | Profiles and community adapters | not started |
+| **M4** | Post-correction LM | replay buffer, resource gate, rebuild built; needs an MLX trainer |
+| **M5** | Acoustic adapter (opt-in) | retention, encryption, quarantine, purge built |
+| **M6** | Profiles and community adapters | profiles + formality built; registry not started |
 
 M0 is the gate that matters: if plain dictation isn't competitive with what you
 already use, nothing downstream gets a chance. Full criteria in
@@ -143,7 +144,7 @@ already use, nothing downstream gets a chance. Full criteria in
 
 | Path | What it is | Verified? |
 |---|---|---|
-| `src/cochlea/` | Adaptation engine: store, attribution, phonetics, importers, lexicon, eval harness | yes — 92 tests |
+| `src/cochlea/` | Adaptation engine: store, attribution, phonetics, importers, lexicon, eval harness, training orchestration, retention, profiles | yes — 137 tests |
 | `macos/` | M0 dictation app (Swift) | **no — never compiled** |
 | `Formula/` | Homebrew formula for the CLI | syntax only; not publishable |
 | `docs/SPEC.md` | The engineering spec and handoff | — |

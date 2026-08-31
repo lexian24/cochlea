@@ -16,14 +16,19 @@ from pathlib import Path
 from . import SCHEMA_VERSION, __version__, phonetics
 from .adapters import LAYERS, AdapterRegistry
 from .evaluation import HoldoutManager, evaluate, gate
+from .profiles import Formality, Profile, ProfileSet
+from .retention import FeatureStore, KeyStore, SpeakerVerifier
+from .training import ResourceGuard
 from .importers import get as get_importer
 from .lexicon import Lexicon, HomophoneRejected, detect_variants, extract_terms
 from .store import CorrectionStore
 
 NOT_YET = {
-    "train": "M4 (post-correction) / M5 (acoustic)",
-    "rebuild": "M4",
-    "profile": "M6",
+    # Orchestration for these exists (see cochlea.training); what is missing is
+    # a Trainer implementation, which needs MLX on Apple Silicon, and a
+    # Transcriber, which needs M0.
+    "train": "M4/M5 -- orchestration built, needs an MLX Trainer",
+    "rebuild": "M4 -- orchestration built, needs an MLX Trainer",
     "lexicon": "M2 (extraction works today; persistence does not)",
 }
 
@@ -182,6 +187,48 @@ def cmd_adapters(args) -> int:
     return 0
 
 
+def cmd_profile(args) -> int:
+    """M6. Profiles are in-memory until persistence lands with the lexicon."""
+    ps = ProfileSet()
+    ps.add(Profile(name="work", formality=Formality.FORMAL,
+                   app_patterns=["com.apple.mail", "com.microsoft.Outlook"]))
+    ps.add(Profile(name="chat", formality=Formality.CASUAL,
+                   app_patterns=["com.tinyspeck.*", "com.apple.MobileSMS"]))
+    if args.action == "list":
+        for name in ps.names():
+            p = ps.get(name)
+            patterns = ", ".join(p.app_patterns) or "(fallback)"
+            print(f"  {name:10} {p.formality:7} {patterns}")
+        print()
+        print("One acoustic adapter is shared across all profiles: the voice")
+        print("does not change with context (SPEC F11).")
+    elif args.action == "which":
+        selected = ps.select(args.bundle_id)
+        print(f"{args.bundle_id or '(none)'} -> {selected.name} ({selected.formality})")
+    return 0
+
+
+def cmd_guard(args) -> int:
+    """Show whether a training run would be allowed to start right now (F20)."""
+    guard = ResourceGuard(
+        on_ac_power=not args.on_battery,
+        idle_seconds=args.idle_seconds,
+        low_power_mode=args.low_power,
+        available_memory_gb=args.free_memory_gb,
+    )
+    blockers = guard.blockers()
+    if blockers:
+        print("training would be DEFERRED:")
+        for b in blockers:
+            print(f"  - {b}")
+    else:
+        print("training would be allowed to start")
+    print()
+    print("Training never blocks dictation and is always resumable "
+          "(SPEC invariant 6, F20).")
+    return 0 if not blockers else 1
+
+
 def cmd_doctor(args) -> int:
     store_path = args.store or default_store_path()
     print(f"cochlea            {__version__}")
@@ -248,6 +295,18 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("adapters", help="adapter versions and which is promoted"
                    ).set_defaults(func=cmd_adapters)
+
+    pr = sub.add_parser("profile", help="app-keyed profiles (M6)")
+    pr.add_argument("action", choices=["list", "which"], default="list", nargs="?")
+    pr.add_argument("bundle_id", nargs="?", help="for `which`: a bundle identifier")
+    pr.set_defaults(func=cmd_profile)
+
+    gd = sub.add_parser("guard", help="would a training run start right now? (F20)")
+    gd.add_argument("--on-battery", action="store_true")
+    gd.add_argument("--low-power", action="store_true")
+    gd.add_argument("--idle-seconds", type=float, default=3600)
+    gd.add_argument("--free-memory-gb", type=float, default=16.0)
+    gd.set_defaults(func=cmd_guard)
     sub.add_parser("stats", help="store metrics").set_defaults(func=cmd_stats)
     sub.add_parser("doctor", help="versions and config").set_defaults(func=cmd_doctor)
 

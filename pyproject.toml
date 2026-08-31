@@ -13,6 +13,7 @@ dependencies = []
 
 [project.optional-dependencies]
 zh = ["pypinyin>=0.49"]
+acoustic = ["cryptography>=41"]   # encryption at rest for mel features (F7)
 dev = ["pytest>=7"]
 
 [project.scripts]

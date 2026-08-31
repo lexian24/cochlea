@@ -815,5 +815,14 @@ The harness takes a `Transcriber` protocol rather than loading a model, which
 is what keeps the gate testable on any platform and keeps M3 genuinely ahead of
 M4/M5 instead of entangled with them.
 
-M0 remains unimplemented, and with it the entire capture path. Nothing here
-transcribes audio.
+M4, M5 and M6 follow the same pattern: the orchestration and policy are built
+and tested, and the parts that need Apple Silicon or a model sit behind a
+protocol. M4 has the replay buffer, the resource gate and `rebuild` but no
+`Trainer`; M5 has retention caps, encryption at rest, speaker-verification
+policy and purge but no embedding model; M6 has app-keyed profiles and the F12
+formality asymmetry but no community adapter registry.
+
+M0 exists as an uncompiled Swift draft in `macos/`, written without a
+toolchain. Nothing in this repository transcribes audio: there is no ASR
+backend and `ModelCatalog` ships empty pending the §7 benchmark and the F23
+licence audit.
