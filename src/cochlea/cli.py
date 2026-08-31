@@ -237,7 +237,8 @@ def cmd_doctor(args) -> int:
     print(f"store              {store_path} ({'present' if Path(store_path).exists() else 'absent'})")
     print(f"phonetic backends  {', '.join(phonetics.available())} (fallback: edit-distance)")
     print(f"importers          {', '.join(sorted(__import__('cochlea.importers', fromlist=['REGISTRY']).REGISTRY))}")
-    print("base model         none (M0 not implemented)")
+    from . import asr as _asr
+    print(f"asr backend        {_asr.describe()}")
     if Path(store_path).exists():
         st = CorrectionStore(store_path, text_only=not args.acoustic)
         print(f"utterances         {len(st.all())} "
@@ -259,6 +260,82 @@ def cmd_doctor(args) -> int:
     print("Paste this into a bug report: it carries the adapter version, base")
     print("model, config hash and eval score a regression needs (SPEC F15).")
     return 0
+
+
+def cmd_asr_serve(args) -> int:
+    """Speak the sidecar protocol on stdin/stdout until the app closes the pipe.
+
+    Not a user-facing command. The macOS app spawns this and talks to it (D5);
+    running it by hand gets you a process waiting for JSON on stdin, which is
+    why it is hidden from `dictate --help`.
+    """
+    from .sidecar import serve
+
+    return serve(args.model, identifier=args.identifier)
+
+
+def cmd_asr_check(args) -> int:
+    """Transcribe a 16 kHz mono WAV and report the latency split.
+
+    This is the M0 benchmark SPEC §7 asked for, runnable by anyone on their own
+    machine: F19 makes cold and warm separate acceptance numbers, and the only
+    way to know which model meets the budget on *your* hardware is to measure
+    it there. See D6 for what it reported on the machine it was written on.
+    """
+    import time
+    import wave
+
+    from .asr import ASRUnavailable, MLXWhisperBackend, SAMPLE_RATE
+
+    try:
+        with wave.open(args.audio, "rb") as w:
+            if w.getframerate() != SAMPLE_RATE or w.getnchannels() != 1:
+                print(f"expected 16 kHz mono, got {w.getframerate()} Hz "
+                      f"{w.getnchannels()}ch", file=sys.stderr)
+                return 1
+            frames, width = w.readframes(w.getnframes()), w.getsampwidth()
+    except (OSError, wave.Error) as exc:
+        print(f"could not read {args.audio}: {exc}", file=sys.stderr)
+        return 1
+    if width != 2:
+        print(f"expected 16-bit samples, got {width * 8}-bit", file=sys.stderr)
+        return 1
+
+    import array
+
+    pcm = array.array("h")
+    pcm.frombytes(frames)
+    if sys.byteorder != "little":
+        pcm.byteswap()
+    samples = [v / 32768.0 for v in pcm]
+    seconds = len(samples) / SAMPLE_RATE
+
+    try:
+        backend = MLXWhisperBackend(args.model, fp16=not args.fp32)
+        started = time.perf_counter()
+        backend.warm_up()
+        cold_ms = int((time.perf_counter() - started) * 1000)
+        runs = []
+        for _ in range(args.runs):
+            runs.append(backend.transcribe(samples, language=args.language))
+    except ASRUnavailable as exc:
+        print(f"asr unavailable: {exc}", file=sys.stderr)
+        return 1
+
+    warm = sorted(r.inference_ms for r in runs)[len(runs) // 2]
+    print(f"model              {backend.identifier}")
+    print(f"precision          {'fp16' if backend.fp16 else 'fp32'}")
+    print(f"audio              {seconds:.2f}s")
+    print(f"cold (weight load) {cold_ms} ms")
+    print(f"warm median        {warm} ms   over {args.runs} run(s)")
+    print(f"budget             {'MET' if warm < 1000 else 'MISSED'} "
+          f"(M0 acceptance: under 1000 ms warm)")
+    print(f"language           {runs[-1].language}")
+    print(f"text               {runs[-1].text}")
+    print()
+    print("Cold and warm are reported separately because F19 makes them "
+          "separate\nacceptance numbers; one median hides the first-press cost.")
+    return 0 if warm < 1000 else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -309,6 +386,23 @@ def main(argv: list[str] | None = None) -> int:
     gd.set_defaults(func=cmd_guard)
     sub.add_parser("stats", help="store metrics").set_defaults(func=cmd_stats)
     sub.add_parser("doctor", help="versions and config").set_defaults(func=cmd_doctor)
+
+    # M0's ASR path (D5). asr-serve is spawned by the app, not typed.
+    serve_p = sub.add_parser("asr-serve", help=argparse.SUPPRESS)
+    serve_p.add_argument("--model", required=True,
+                         help="directory holding config.json and the weights")
+    serve_p.add_argument("--identifier", help="name to report to the app")
+    serve_p.set_defaults(func=cmd_asr_serve)
+
+    chk = sub.add_parser("asr-check", help="benchmark ASR on a 16 kHz mono WAV")
+    chk.add_argument("audio")
+    chk.add_argument("--model", required=True,
+                     help="directory holding config.json and the weights")
+    chk.add_argument("--language", help="force a language instead of detecting")
+    chk.add_argument("--runs", type=int, default=3)
+    chk.add_argument("--fp32", action="store_true",
+                     help="full precision; roughly halves throughput (D6)")
+    chk.set_defaults(func=cmd_asr_check)
 
     pur = sub.add_parser("purge", help="delete stored data")
     pur.add_argument("--audio", action="store_true", help="acoustic features only")

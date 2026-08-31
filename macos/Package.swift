@@ -1,13 +1,14 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-// Deliberately dependency-free.
+// Deliberately dependency-free, and it stays that way under D5.
 //
-// The ASR backend is a seam (`Transcriber`), not a hard dependency: pulling
-// mlx-swift in here would make the package unbuildable for anyone without the
-// full toolchain and would couple M0 to a decision the spec leaves open
-// (Whisper turbo vs SenseVoice-Small, benchmarked at M0). Add it in a target
-// that conforms to `Transcriber` once that benchmark is settled.
+// The ASR backend is a seam (`Transcriber`), not a hard dependency. D5 puts
+// inference in a Python child process rather than an in-process Swift library,
+// so there is still nothing to link: `SidecarTranscriber` needs only
+// Foundation. That is a consequence of the decision, not a constraint that
+// drove it -- see docs/DECISIONS.md D5 for why the decode loop belongs next to
+// the lexicon.
 let package = Package(
     name: "Cochlea",
     platforms: [.macOS(.v13)],
@@ -25,5 +26,6 @@ let package = Package(
             dependencies: ["CochleaCore", "CochleaAudio", "CochleaASR", "CochleaInput"]
         ),
         .testTarget(name: "CochleaCoreTests", dependencies: ["CochleaCore"]),
+        .testTarget(name: "CochleaASRTests", dependencies: ["CochleaASR"]),
     ]
 )

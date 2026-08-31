@@ -7,8 +7,10 @@ already refuted there.
 
 ## Layout
 
-- `src/cochlea/` — the adaptation engine, in Python. Tested (137 tests).
-- `macos/` — the M0 app, in Swift. Compiles in CI; has never been *run*.
+- `src/cochlea/` — the adaptation engine and the ASR sidecar, in Python.
+  Tested (164 tests).
+- `macos/` — the M0 app, in Swift. Builds in CI; the ASR path has been run,
+  the capture path has not.
 - `docs/DECISIONS.md` — decision records. Add one rather than silently
   reversing a choice.
 
@@ -26,8 +28,11 @@ shared test helper, put it in `tests/helpers.py`; do not import across test
 modules.
 
 The optional extras must stay optional: `pytest` with only `[dev]` installed
-has to pass, with the `zh` and `acoustic` tests skipping. That is invariant 4
-and CI enforces it in the `text-only` job.
+has to pass, with the `zh`, `acoustic` and `asr` tests skipping. That is
+invariant 4 and CI enforces it in the `text-only` job. `asr` matters most here,
+because MLX has no wheel outside Apple Silicon — nothing outside
+`cochlea.asr` may import it at module scope, and the sidecar protocol is
+deliberately testable with a fake backend so CI covers it on Linux.
 
 ## Invariants
 
@@ -66,12 +71,28 @@ Violating any of these is a bug regardless of what the tests say. Full list in
 
 ## Current state
 
-- **M0** compiles but has no ASR backend. `Transcriber` is a three-method
-  protocol; nothing conforms to it. Start at [macos/BUILDING.md](macos/BUILDING.md).
+- **M0** transcribes. `SidecarTranscriber` conforms to `Transcriber` by talking
+  to a Python child process over pipes (DECISIONS D5); ASR itself is
+  `mlx-whisper`, in the `asr` extra. Verified end to end at 655–661 ms per
+  utterance with `whisper-small`. Untested: everything needing a human — the
+  hotkey, the microphone, the injector. See [macos/BUILDING.md](macos/BUILDING.md).
 - **M1–M6** orchestration is built and tested; what is missing in each case
-  needs Apple Silicon or a model.
+  needs a trainer or a model.
 - **Stage 2 (iPhone)** is designed, not started, and deliberately requires no
   schema change: [docs/STAGE2-IPHONE.md](docs/STAGE2-IPHONE.md).
+
+## Running the ASR path
+
+```sh
+pip install -e ".[dev,zh,acoustic,asr]"    # asr is Apple Silicon only
+dictate asr-check utterance.wav --model ~/.cochlea/models/whisper-small
+```
+
+`asr-check` is the M0 benchmark SPEC §7 asked for: it reports cold and warm
+separately, because F19 makes them separate acceptance numbers, and prints
+whether the warm median meets the 1s budget. Numbers from one M2 are in
+DECISIONS D6 — `large-v3-turbo` misses the budget there and `whisper-small`
+meets it, which is measured on one machine and not yet a reason to change D1.
 
 ## Conventions
 

@@ -19,14 +19,16 @@
 >
 > The **adaptation engine** is built and tested — correction store, correction/
 > revision filter, phonetic matching, importers, lexicon, evaluation harness,
-> training orchestration. 137 tests, all executed.
+> training orchestration. 164 tests, all executed.
 >
-> The **dictation app** in [`macos/`](macos/) compiles on macOS 14 (CI builds
-> it), but does nothing yet: there is no ASR backend wired up, so nothing
-> transcribes audio.
+> The **dictation app** in [`macos/`](macos/) builds, and now transcribes:
+> speech recognition runs in a Python helper process
+> ([D5](docs/DECISIONS.md)), measured at 655–661 ms per utterance on an M2.
 >
-> The CLI installs and works today. The app does not exist yet. Both statements
-> are precise.
+> What has **not** been exercised is everything needing a person — the hotkey,
+> the microphone, and typing at your cursor. So: the recogniser works, the
+> capture path around it is unproven, and nobody has yet dictated a sentence
+> with this. All three statements are precise.
 
 ## Install
 
@@ -35,9 +37,17 @@ brew tap lexian24/cochlea https://github.com/lexian24/cochlea
 brew install cochlea
 ```
 
-That installs the `dictate` CLI — the adaptation engine, importers and
-evaluation harness. It does **not** transcribe audio; there is no ASR backend
-yet.
+That installs the `dictate` CLI — the adaptation engine, importers, evaluation
+harness, and the ASR helper the app talks to. Speech recognition needs the
+`asr` extra, which is Apple Silicon only:
+
+```sh
+pip install 'cochlea[asr]'      # mlx-whisper
+dictate asr-check my.wav --model ~/.cochlea/models/whisper-small
+```
+
+The menu bar app is not packaged yet: it needs signing and notarization (F22)
+before `brew install --cask` is honest.
 
 <details>
 <summary>Other ways</summary>
@@ -160,9 +170,9 @@ dictate doctor                   # paste this into a bug report
 
 | | Milestone | State |
 |---|---|---|
-| **M0** | Competitive dictation, zero learning | Swift compiles in CI; model chosen, no ASR backend |
+| **M0** | Competitive dictation, zero learning | ASR works (655 ms/utterance); hotkey, mic and injector unproven |
 | **M1** | Correction capture | engine built, no UI (needs M0) |
-| **M2** | Lexicon and biasing | extraction + decay built; decode-time biasing needs an ASR |
+| **M2** | Lexicon and biasing | extraction + decay built; decode loop now reachable from the lexicon (D5) |
 | **M3** | Evaluation harness — gates all training | **built** |
 | **M4** | Post-correction LM | replay buffer, resource gate, rebuild built; needs an MLX trainer |
 | **M5** | Acoustic adapter (opt-in) | retention, encryption, quarantine, purge built |

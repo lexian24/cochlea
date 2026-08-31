@@ -1,12 +1,14 @@
 # Building cochlea.app locally
 
-> **Status: CI compiles this on macOS 14.** It was written on Linux with no
-> Swift toolchain, so every line was unverified until GitHub Actions built it.
-> The `macos-app` job in `.github/workflows/ci.yml` is the source of truth for
-> whether it currently builds — check it before you start.
+> **Status: it builds, and it transcribes.** Written on Linux with no Swift
+> toolchain, first compiled by CI, and since built and run on an Apple M2
+> (macOS 26, Swift 6.2.3). The `macos-app` job in `.github/workflows/ci.yml`
+> is the source of truth for whether it currently builds.
 >
-> It still does not *do* anything: there is no ASR backend, so it cannot
-> transcribe. See "Wiring up an ASR backend" below.
+> Speech recognition runs in a Python child process ([D5](../docs/DECISIONS.md)),
+> verified end to end at 655–661 ms per utterance. What has *not* been
+> exercised is everything needing a human: the hotkey, the microphone and the
+> injector. See "Still unverified" below — that list is the honest state.
 
 ## First run
 
@@ -26,7 +28,17 @@ open build/cochlea.app
 ```
 
 It appears in the menu bar with no Dock icon. The hotkey is **Control-Option-D**
-(push to talk). It will not transcribe: there is no ASR backend.
+(push to talk).
+
+To transcribe it needs the `dictate` helper and a model. Both are checked at
+launch, and a missing one is reported when you first press the hotkey rather
+than at startup:
+
+```sh
+pip install -e '.[asr]'                     # Apple Silicon only
+export COCHLEA_DICTATE=$(which dictate)     # if not installed via Homebrew
+dictate asr-check some-16k-mono.wav --model ~/.cochlea/models/whisper-small
+```
 
 ## What the first real compile found
 
@@ -74,25 +86,37 @@ Compiling is not running. These need a real Mac, a microphone and your hands:
    a time into 1 MB writes. Over 1.6 GB the per-byte `await` overhead may be
    unacceptable — profile before assuming it is fine.
 
-## Wiring up an ASR backend
+## The ASR backend
 
-This is the gap. `Transcriber` is a three-method protocol in
-`Sources/CochleaASR/Transcriber.swift`; nothing conforms to it except
-`UnavailableTranscriber`, which throws.
+This used to be the gap. It is now `SidecarTranscriber`, which conforms to
+`Transcriber` by talking to a Python child process over pipes
+([D5](../docs/DECISIONS.md)).
 
-The model is decided — Whisper large-v3-turbo, reasoning in
-[docs/DECISIONS.md](../docs/DECISIONS.md) — but the runtime is not written.
-Three routes:
+The three routes this section used to list were mlx-swift, WhisperKit and
+whisper.cpp, with SPEC §4's shared-format argument favouring the first. Two
+facts settled it differently:
 
-| Route | Pro | Con |
-|---|---|---|
-| **mlx-swift** | Matches SPEC §4: one model format for inference *and* training, which is what M5's acoustic LoRA needs | Whisper support in Swift MLX needs checking; may mean porting the Python `mlx-examples` implementation |
-| **WhisperKit** | Mature, MIT, Swift-native, works today | CoreML, not MLX — breaks the shared-format rationale, so training needs a second copy of the weights |
-| **whisper.cpp** | Fastest to wire up, well-trodden | Same split-format problem, plus a C interop layer |
+- **There is no Whisper for Swift MLX.** `mlx-swift-examples/Libraries` holds
+  MLXMNIST and StableDiffusion. That route means porting the encoder, decoder,
+  mel frontend and tokenizer before anything transcribes.
+- **`mlx-tune`, the trainer SPEC §4 names, is Python.** M5 trains in Python
+  whichever way M0 goes, so "one format for inference and training" was never
+  an argument for putting *inference* in Swift.
 
-The spec chose MLX deliberately so M5 does not need two model formats. If you
-take WhisperKit to get M0 shipped, record it as a decision and note what it
-costs M5 — do not let it become an accident.
+The deciding argument is M2 rather than M5: biasing adjusts token scores inside
+the decode loop, and the lexicon is `cochlea.lexicon`. A Swift runtime puts a
+language boundary between them, crossed once per token.
+
+The pipe costs **0–1 ms** per utterance, because push-to-talk sends one message
+per utterance rather than per frame.
+
+```
+Swift            hotkey → AudioCapture → VAD → [pipe] → TextInjector
+Python (dictate asr-serve)    mlx-whisper decode loop ← lexicon biasing (M2)
+```
+
+If you replace this with an in-process Swift runtime, record it as a decision
+and say what it costs M2 — do not let it become an accident.
 
 `ModelCatalog` carries the descriptor; `ModelResolver` resolves the file list
 and digests from HuggingFace. Both catalogued models are **pinned**, and the

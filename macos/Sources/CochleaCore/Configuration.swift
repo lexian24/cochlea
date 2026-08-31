@@ -21,7 +21,11 @@ public struct Configuration: Codable, Sendable {
     }
 
     public var mode: Mode = .commitOnRelease
-    public var modelIdentifier: String = "whisper-turbo"
+    /// Sourced from the catalog rather than written out, because a literal
+    /// here drifted: it read "whisper-turbo", which matches no descriptor, so
+    /// `ModelCatalog.descriptor(for:)` would have returned nil the moment
+    /// anything resolved it. Nothing read it yet, so it never fired.
+    public var modelIdentifier: String = ModelCatalog.default.identifier
 
     /// F19: hold the model in memory and warm it at launch. A multi-second
     /// delay on the first hotkey press reads as broken.

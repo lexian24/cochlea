@@ -199,3 +199,139 @@ handling remain unexercised.
 behaviour. If HuggingFace begins publishing content digests for non-LFS files,
 `config.json` could be resolved rather than pinned, and the local-hashing branch
 of `pin-model.sh` could go.
+
+---
+
+## D5 — ASR runs in Python, in a process the app spawns
+
+**Status:** decided. Implements M0's transcription path.
+[macos/BUILDING.md](../macos/BUILDING.md) offered three routes; this is a
+fourth, and the reason it was not on the list is a fact about the ecosystem
+that only checking turned up.
+
+**Context.** `Transcriber` is a three-method protocol that nothing conformed
+to, so nothing in this repository transcribed audio. BUILDING.md framed the
+choice as mlx-swift versus WhisperKit versus whisper.cpp, with SPEC §4's
+"one model format for inference *and* training" favouring mlx-swift.
+
+**What checking found.**
+
+1. **There is no Whisper for Swift MLX.** `mlx-swift-examples/Libraries`
+   contains MLXMNIST and StableDiffusion. Taking that route means porting the
+   encoder, decoder, mel frontend and a 51866-token tokenizer from the Python
+   implementation before anything transcribes at all.
+2. **`mlx-tune`, the trainer SPEC §4 names, is Python.** So M5 trains in
+   Python whichever way M0 goes. The Swift side was never going to train, which
+   means "one format for inference and training" was never an argument for
+   putting *inference* in Swift — only for keeping it on MLX.
+
+**Decision.** Inference runs in Python, in a child process the app spawns and
+talks to over pipes. Swift keeps what it is uniquely able to do — the hotkey,
+audio capture, and typing at the cursor — and `SidecarTranscriber` conforms to
+the existing `Transcriber` protocol, so `DictationController` is unchanged.
+
+**Why, and the reason is M2 rather than M5.** Contextual biasing adjusts token
+scores inside the decode loop. The lexicon those scores come from is
+`cochlea.lexicon`, in Python. Every Swift route puts a language boundary
+between the decode loop and the lexicon, and that boundary is crossed once per
+token. D1 calls biasing "the layer that pays off first" and the reason for
+preferring Whisper over SenseVoice at all; putting it out of reach to gain a
+Swift-native runtime would be paying for the decision twice.
+
+The M5 argument survives too, and more cleanly than the alternatives: the
+adapter `mlx-tune` produces is loaded by the same MLX runtime that serves
+inference, with no conversion step between them.
+
+**Why a child process rather than a socket.** A socket needs a port or a path,
+a permission story, a cleanup story for when the app is killed, and an answer
+for a second instance. A pipe to a child has none of those, and the kernel
+closes it when either side dies.
+
+**Why this costs less than it looks.** Measured on an M2: **0–1 ms** of the
+round trip is the pipe. Latency is the whole objection to a sidecar, and it is
+0.1% of M0's one-second budget. The reason it is so small is that push-to-talk
+sends one message per utterance, not per frame — the audio is already buffered
+in Swift when the hotkey is released.
+
+**What it costs, stated plainly.**
+
+- **A second runtime to install.** Mitigated by the fact that the Homebrew
+  formula already installs a Python virtualenv with `dictate` in it; this adds
+  a dependency to an existing mechanism rather than introducing one. The app
+  looks for `dictate` at Homebrew's two prefixes and honours `COCHLEA_DICTATE`.
+  It deliberately does not consult `PATH`: a GUI app launched from Finder does
+  not inherit the shell's, so trusting it would work from a terminal and fail
+  on double-click.
+- **A protocol to keep compatible.** Versioned, and the app refuses a mismatch
+  with a message naming which side is older.
+- **Two failure modes instead of one** — a missing helper and a missing model.
+  They are reported separately because their fixes differ.
+- **Process lifecycle.** The child is respawned if it dies. A backend error on
+  one utterance does not kill it, because the loaded model is the expensive
+  thing to lose.
+
+**What would reverse this.** A Whisper implementation for Swift MLX with a
+biasing hook, which would remove the language boundary without giving up the
+shared format. `Transcriber` is what keeps that a new conformance rather than a
+rewrite — the same seam D1 relied on.
+
+**Verified end to end**, Swift spawning Python against a checksum-verified
+`whisper-small`: warm-up 3.1 s, then 655–661 ms per 12.8-second utterance, of
+which 0–1 ms is the pipe, transcript correct. What is *not* verified is
+everything upstream of `transcribe(samples:)` — the hotkey, the microphone and
+the injector still need a human at a real keyboard.
+
+---
+
+## D6 — fp16 by default, and the M0 benchmark SPEC §7 asked for
+
+**Status:** the precision is decided. The default model is **measured and open**
+— see "What this does to D1".
+
+**Context.** SPEC §7 asked for a benchmark at M0 and D1 chose
+`large-v3-turbo` without one, on architectural grounds, noting "F18's sub-1s
+budget is the binding constraint, and turbo is the variant that meets it".
+It is now runnable: `dictate asr-check <wav> --model <dir>`.
+
+**Measured** on an Apple M2, 8 GB, macOS 26, mlx-whisper 0.4.3, warm median of
+several runs on synthesised speech:
+
+| model | precision | 6.2 s utterance | 12.8 s utterance |
+|---|---|---|---|
+| large-v3-turbo | fp16 | 1.95 s | 2.06 s |
+| large-v3-turbo | fp32 | 3.28 s | 3.88 s |
+| whisper-small | fp16 | 0.56 s | **0.66 s** |
+| whisper-small | fp32 | 1.13 s | 1.54 s |
+
+**Decision: fp16.** It is a flat ~2x against a budget of one second, and the
+transcripts were identical on every sample benchmarked. `fp16=False` remains
+available for debugging a suspected precision problem.
+
+**A property of Whisper worth recording:** doubling the audio barely moved the
+number (1.95 s → 2.06 s). Whisper pads every input to a 30-second window, so
+cost is per-window, not per-second. M0's "10-second utterance" criterion is
+really a one-window criterion, and utterances shorter than 30 s all cost the
+same.
+
+**What this does to D1.** `large-v3-turbo` misses M0's acceptance criterion by
+2x on this machine, and the claim that turbo "meets" the sub-1s budget is
+false here. `whisper-small` meets it with room to spare.
+
+This is **not** enough to reverse D1 on its own, and it is recorded rather than
+acted on for two reasons. It is one machine, and a base M2 with 8 GB is the low
+end of the supported range — the same measurement on an M3 Max would likely
+put turbo under the bar. And the samples were synthesised speech, which says
+nothing about the accuracy gap on accented, noisy or technical input, where
+large-v3-turbo is expected to be materially better. Choosing the smaller model
+on latency alone would be trading an unmeasured amount of accuracy for a
+measured amount of speed.
+
+What the numbers do establish is that **one default cannot serve both ends of
+the hardware range**, which is what `ModelCatalog.whisperSmall` already
+anticipates by existing "for constrained machines". The open question is
+whether selection should be automatic — a first-run benchmark — or a documented
+choice. That is a product decision, and it needs a second machine's numbers
+before it is worth making.
+
+Nothing here disturbs D1's *architectural* reasoning: Whisper over SenseVoice
+rests on the biasing argument, not on the variant.

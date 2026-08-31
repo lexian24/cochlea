@@ -14,6 +14,10 @@ dependencies = []
 [project.optional-dependencies]
 zh = ["pypinyin>=0.49"]
 acoustic = ["cryptography>=41"]   # encryption at rest for mel features (F7)
+# M0's speech recognition (D5). Apple Silicon only -- MLX has no wheel for
+# anything else -- which is why it is an extra and why nothing outside
+# cochlea.asr may import it at module scope. Invariant 4.
+asr = ["mlx-whisper>=0.4"]
 dev = ["pytest>=7"]
 
 [project.scripts]

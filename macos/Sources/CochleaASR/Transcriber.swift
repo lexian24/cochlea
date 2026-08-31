@@ -37,24 +37,35 @@ public struct TranscriptionResult: Sendable {
 /// invented words at the user's cursor is worse than one that types nothing.
 public final class UnavailableTranscriber: Transcriber, @unchecked Sendable {
     public let identifier = "none"
-    public init() {}
+    /// Why there is no transcriber, in a sentence the user can act on. A bare
+    /// "unavailable" sends people to the issue tracker; naming the missing
+    /// piece sends them to the fix.
+    public let reason: String
+
+    public init(reason: String = TranscriberError.noModelInstalled.description) {
+        self.reason = reason
+    }
+
     public func warmUp() async throws {}
     public func transcribe(samples: [Float]) async throws -> TranscriptionResult {
-        throw TranscriberError.noModelInstalled
+        throw TranscriberError.unavailable(reason)
     }
 }
 
 public enum TranscriberError: Error, CustomStringConvertible {
     case noModelInstalled
     case notWarmedUp
+    case unavailable(String)
 
     public var description: String {
         switch self {
         case .noModelInstalled:
             return "no speech model is installed. cochlea ships no weights "
-                 + "(SPEC F21); run the first-run download once ModelCatalog is populated."
+                 + "(SPEC F21); it is downloaded and checksum-verified on first run."
         case .notWarmedUp:
             return "model was not warmed up; call warmUp() at launch (SPEC F19)"
+        case .unavailable(let reason):
+            return reason
         }
     }
 }

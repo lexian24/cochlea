@@ -3,13 +3,16 @@
 > ## Builds, but has never been run.
 >
 > Written on Linux with no Swift toolchain — every line was unverified until CI
-> built it. It now **compiles on macOS 14 (Swift 5.10, arm64) and its 13 tests
-> pass**, checked by the `macos-app` job.
+> built it. It **builds on macOS 14 (Swift 5.10) and on macOS 26 (Swift 6.2.3,
+> M2)**, checked by the `macos-app` job.
 >
-> Compiling is not running. There is no ASR backend, so it cannot transcribe,
-> and nothing here has been exercised with a real microphone, a real hotkey
-> press, or Accessibility permission granted. See
-> [BUILDING.md](BUILDING.md) for what a compiler cannot check.
+> It transcribes: `SidecarTranscriber` drives a Python `mlx-whisper` process
+> ([D5](../docs/DECISIONS.md)), run end to end at 655–661 ms per utterance.
+>
+> Compiling is still not running, and neither is that. Nothing here has been
+> exercised with a real microphone, a real hotkey press, or Accessibility
+> permission granted — the three things between a working recogniser and a
+> working dictation app. See [BUILDING.md](BUILDING.md).
 
 ## What this is
 

@@ -119,12 +119,13 @@ source and the formula's version assertion cannot drift from it.
 
 ## What the formula does not install
 
-- **The macOS app.** M0 is an uncompiled Swift draft. A `.app` ships through a
-  Homebrew **cask**, not this formula.
+- **The macOS app.** A `.app` ships through a Homebrew **cask**, not this
+  formula, and not until F22 signing is resolved.
 - **Model weights.** Per F21 a formula never ships a 1.6 GB model. The default
   model is decided ([D1](DECISIONS.md)) and its checksums are now pinned
-  ([D4](DECISIONS.md)), but no ASR backend exists yet, so nothing consumes the
-  download.
+  ([D4](DECISIONS.md)). The ASR backend that consumes them is the `asr` extra
+  (D5), which is Apple Silicon only and so cannot be a hard dependency of the
+  formula.
 
 ## Still blocking a real product release
 
@@ -132,8 +133,9 @@ source and the formula's version assertion cannot drift from it.
   and Microphone access is blocked by Gatekeeper. Required before M0 ships.
 - **F23, model licensing.** Whisper is MIT, which is why it was chosen, but
   `LICENSES-MODELS.md` still has to exist before anything downloads weights.
-- **An ASR backend.** Nothing conforms to `Transcriber`, so the app cannot
-  transcribe. See [macos/BUILDING.md](../macos/BUILDING.md).
+- **A proven capture path.** ASR works (D5), but the hotkey, microphone and
+  text injector have never been exercised by a person. See
+  [macos/BUILDING.md](../macos/BUILDING.md).
 
 Checksum pinning, which stood here as a blocker under D2, is done
 ([D4](DECISIONS.md)).

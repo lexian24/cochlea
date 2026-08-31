@@ -8,7 +8,10 @@ This document is the handoff brief. It records the design decisions, the
 failure modes we expect, the personas the design must serve, and a milestone
 plan with acceptance criteria.
 
-**Status: pre-M0.** Nothing in this document is implemented.
+**Status: M0 transcribes; the capture path is unproven.** This document is
+the brief as handed over. What has been built since, and what contradicted
+it, is recorded in [Appendix B](#implementation-state) and
+[docs/DECISIONS.md](DECISIONS.md) rather than by editing the brief.
 
 ## Contents
 
@@ -822,7 +825,30 @@ protocol. M4 has the replay buffer, the resource gate and `rebuild` but no
 policy and purge but no embedding model; M6 has app-keyed profiles and the F12
 formality asymmetry but no community adapter registry.
 
-M0 exists as an uncompiled Swift draft in `macos/`, written without a
-toolchain. Nothing in this repository transcribes audio: there is no ASR
-backend and `ModelCatalog` ships empty pending the §7 benchmark and the F23
-licence audit.
+M0 transcribes. The Swift app builds on Swift 6.2, `SidecarTranscriber`
+conforms to `Transcriber` by talking to a Python `mlx-whisper` child process
+([D5](DECISIONS.md)), and the chain has been run end to end on an M2 against a
+checksum-verified model: 655–661 ms warm per utterance, of which 0–1 ms is the
+pipe. `ModelCatalog` is pinned ([D4](DECISIONS.md)).
+
+Three things in this document were falsified by running it on hardware, rather
+than by argument, and each is recorded where the reasoning lives:
+
+- **The first-run download could never have succeeded.** The resolver read the
+  wrong JSON key, so every file resolved to a nil digest and the downloader
+  refused it. Compiling never exercised it and no earlier environment could
+  reach the provider. ([D4](DECISIONS.md))
+- **§4's shared-format argument does not imply a Swift runtime.** There is no
+  Whisper for Swift MLX, and `mlx-tune` is Python — so M5 trains in Python
+  whichever way M0 goes. The argument for MLX survives; the argument for Swift
+  never existed. ([D5](DECISIONS.md))
+- **`large-v3-turbo` misses M0's own latency bar** on an 8 GB M2, by 2x, where
+  `whisper-small` meets it. The §7 benchmark is now a command anyone can run
+  (`dictate asr-check`). One machine is not enough to reverse
+  [D1](DECISIONS.md), and the record says so. ([D6](DECISIONS.md))
+
+What remains unproven is everything that needs a person: the hotkey, the
+microphone, and typing at the cursor. Those are listed in
+[macos/BUILDING.md](../macos/BUILDING.md), and no amount of CI will close them.
+The F23 licence audit (`LICENSES-MODELS.md`) is also still outstanding, as is
+F22 signing.

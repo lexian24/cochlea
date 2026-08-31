@@ -25,11 +25,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // The default model is decided (docs/DECISIONS.md D1: Whisper
-        // large-v3-turbo) but no MLX backend conforms to `Transcriber` yet, so
-        // the app still runs with a transcriber that refuses. Typing invented
-        // words at the user's cursor would be worse than typing nothing.
-        let transcriber: Transcriber = UnavailableTranscriber()
+        // ASR runs in a Python helper (docs/DECISIONS.md D5). If the helper
+        // or the model is missing this returns a transcriber that refuses with
+        // the reason — the app still runs, because typing invented words at
+        // the user's cursor would be worse than typing nothing.
+        let transcriber: Transcriber = TranscriberFactory.make(
+            configuration: configuration)
 
         let menuBar = MenuBarController()
         let controller = DictationController(configuration: configuration,
