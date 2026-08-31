@@ -170,7 +170,9 @@ public final class DictationController {
         // ends it early if the user stops speaking and holds the key.
         if let finished = segmenter.accept(frame: frame) {
             Diagnostics.log("vad", "silence ended the utterance while the key "
-                          + "was still held (\(finished.count) samples)")
+                + "was still held (\(finished.count) samples, floor "
+                + "\(String(format: "%.4f", segmenter.currentNoiseFloor ?? 0)), "
+                + "threshold \(String(format: "%.4f", segmenter.currentThreshold)))")
             Task { await transcribeAndType(finished) }
         }
     }
@@ -188,6 +190,9 @@ public final class DictationController {
             state = .idle
             return
         }
+        Diagnostics.log("vad", "noise floor "
+            + "\(String(format: "%.4f", segmenter.currentNoiseFloor ?? 0)), threshold "
+            + "\(String(format: "%.4f", segmenter.currentThreshold))")
         Diagnostics.log("capture", "captured \(samples.count) samples "
                       + "(\(String(format: "%.2f", Double(samples.count) / 16_000))s)")
         await transcribeAndType(samples)

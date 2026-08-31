@@ -87,7 +87,10 @@ open questions.
 |---|---|
 | **T1** hotkey key-up | **Passes.** `RegisterEventHotKey` delivers `kEventHotKeyReleased`. Push-to-talk works as built and the `NSEvent` fallback is not needed. |
 | **T2** permissions | **Passes.** Nothing prompts at launch; both prompts arrive on the first press. |
-| **T7** latency | **Passes.** 383–414 ms warm, against a 1000 ms budget. |
+| **T3** injection | **Passes.** TextEdit, browser and VS Code, nothing executed. |
+| **T4** long text | **Passes.** A 28.6 s paragraph, 398 characters, no truncation — the 16-unit chunking is fine. |
+| **T7** latency | **Passes.** 383–441 ms warm, against a 1000 ms budget. A 28.6 s utterance cost 1016 ms; Whisper pads to a 30 s window, so that is one window's price, not a per-second one. |
+| **T5** mic closes | **Failed, fixed, needs re-testing.** See below. |
 
 Two things that test found, both fixed:
 
@@ -97,6 +100,15 @@ Two things that test found, both fixed:
   access at ~190–240 ms, now paid at launch by `AudioCapture.prewarm()`. After
   both: 366 ms on the first press of a session, 114 ms after. Watch this number
   on other machines — anything approaching a second clips a word.
+- **The VAD never fired.** Holding silent for four seconds did not end the
+  utterance. Measured on the spot: that room idles at 0.0166–0.0386 RMS against
+  a fixed threshold of 0.012, so 100% of silence counted as speech, trailing
+  silence never accumulated, and the accidental-tap guard was broken by the
+  same fact. The threshold is now relative to a measured noise floor, with a
+  ceiling — without one, a user who presses and speaks immediately seeds the
+  floor with speech and loses the whole utterance, which is worse than the bug
+  being fixed. The hangover went from 0.6 s to 1.5 s, since 0.6 s is shorter
+  than a person pausing to think.
 - **An English sentence transcribed as Malay.** Whisper detects language from
   the first window, and a clipped window is read as whatever it most resembles
   — then the *whole* window is mistranscribed, not just the missing part.

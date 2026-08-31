@@ -27,5 +27,6 @@ let package = Package(
         ),
         .testTarget(name: "CochleaCoreTests", dependencies: ["CochleaCore"]),
         .testTarget(name: "CochleaASRTests", dependencies: ["CochleaASR"]),
+        .testTarget(name: "CochleaAudioTests", dependencies: ["CochleaAudio"]),
     ]
 )
