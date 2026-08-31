@@ -46,3 +46,20 @@ jobs:
         run: pytest -q
       - name: Persona journeys must pass in a minimal install
         run: pytest -q tests/test_journeys.py
+
+  macos-app:
+    # The Swift target has never been compiled — it was written without a
+    # toolchain. This job exists to find out whether it builds at all; it is
+    # allowed to fail so a red result here does not mask the Python suite.
+    runs-on: macos-14
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: swift --version
+      - name: Build
+        working-directory: macos
+        run: swift build 2>&1 | tail -80
+      - name: Test
+        working-directory: macos
+        run: swift test 2>&1 | tail -80

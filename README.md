@@ -13,8 +13,10 @@ your spellings. Runs entirely on your machine. No cloud, no account, no telemetr
 > The **adaptation engine** is built and tested — the correction store, the
 > correction/revision filter, phonetic matching, importers, and the lexicon.
 >
-> The **dictation app** is not. There is no hotkey, no speech recognition, and
-> no menu bar app. That work is milestone M0 and hasn't started.
+> The **dictation app** exists only as a first draft in [`macos/`](macos/) that
+> **has never been compiled** — it was written on Linux, with no Swift
+> toolchain and no Apple Silicon. It also ships no speech model, so it cannot
+> transcribe. Treat the Python as the trustworthy half.
 >
 > `brew install cochlea` does not work yet either — no release has been cut.
 > See [docs/RELEASING.md](docs/RELEASING.md) for exactly what's missing.
@@ -125,7 +127,7 @@ at rather than failing obscurely.
 
 | | Milestone | State |
 |---|---|---|
-| **M0** | Competitive dictation, zero learning | not started |
+| **M0** | Competitive dictation, zero learning | draft Swift, **uncompiled**, no ASR backend |
 | **M1** | Correction capture | core built, no UI |
 | **M2** | Lexicon and biasing | extraction built, no decode-time biasing |
 | **M3** | Evaluation harness — gates all training | **built** (no transcriber to score yet) |
@@ -136,6 +138,15 @@ at rather than failing obscurely.
 M0 is the gate that matters: if plain dictation isn't competitive with what you
 already use, nothing downstream gets a chance. Full criteria in
 [the spec](docs/SPEC.md#5-milestones).
+
+## Repository layout
+
+| Path | What it is | Verified? |
+|---|---|---|
+| `src/cochlea/` | Adaptation engine: store, attribution, phonetics, importers, lexicon, eval harness | yes — 92 tests |
+| `macos/` | M0 dictation app (Swift) | **no — never compiled** |
+| `Formula/` | Homebrew formula for the CLI | syntax only; not publishable |
+| `docs/SPEC.md` | The engineering spec and handoff | — |
 
 ## Contributing
 
