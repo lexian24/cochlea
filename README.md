@@ -18,14 +18,24 @@ your spellings. Runs entirely on your machine. No cloud, no account, no telemetr
 > toolchain and no Apple Silicon. It also ships no speech model, so it cannot
 > transcribe. Treat the Python as the trustworthy half.
 >
-> `brew install cochlea` does not work yet either — no release has been cut.
-> See [docs/RELEASING.md](docs/RELEASING.md) for exactly what's missing.
+> `brew install` works for the **CLI** (see below). It does not install a
+> dictation app, because there isn't one yet.
 >
 > What you *can* do today is run the CLI, seed a lexicon from your own writing,
 > and read [the spec](docs/SPEC.md). If you're here to contribute, the spec is
 > the place to start.
 
 ---
+
+## Install the CLI
+
+```sh
+brew install --formula https://raw.githubusercontent.com/lexian24/cochlea/main/Formula/cochlea.rb
+```
+
+This installs the `dictate` CLI only — the adaptation engine, importers and
+evaluation harness. It does **not** transcribe audio: there is no ASR backend
+yet. See [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Why this exists
 

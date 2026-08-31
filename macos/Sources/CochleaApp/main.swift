@@ -25,9 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // No model ships with the binary (F21) and ModelCatalog is empty until
-        // the M0 benchmark and the F23 licence audit are done, so the app runs
-        // with a transcriber that refuses rather than one that invents text.
+        // The default model is decided (docs/DECISIONS.md D1: Whisper
+        // large-v3-turbo) but no MLX backend conforms to `Transcriber` yet, so
+        // the app still runs with a transcriber that refuses. Typing invented
+        // words at the user's cursor would be worse than typing nothing.
         let transcriber: Transcriber = UnavailableTranscriber()
 
         let menuBar = MenuBarController()

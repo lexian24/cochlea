@@ -14,7 +14,7 @@ class Cochlea < Formula
 
   desc "Local-only personalized dictation that adapts to one person"
   homepage "https://github.com/lexian24/cochlea"
-  url "https://github.com/lexian24/cochlea/archive/refs/tags/v0.0.1.tar.gz"
+  url "https://github.com/lexian24/cochlea/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "MIT"
   head "https://github.com/lexian24/cochlea.git", branch: "main"

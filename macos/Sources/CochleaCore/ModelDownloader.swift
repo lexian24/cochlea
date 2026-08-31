@@ -3,19 +3,20 @@ import Foundation
 
 public enum ModelDownloadError: Error, CustomStringConvertible {
     case unknownModel(String)
-    case checksumMismatch(expected: String, actual: String)
-    case serverDoesNotSupportResume
+    case checksumMismatch(file: String, expected: String, actual: String)
+    case noDigestAvailable(file: String)
     case incomplete(received: Int64, expected: Int64)
 
     public var description: String {
         switch self {
         case .unknownModel(let id):
-            return "no descriptor for model \(id); populate ModelCatalog first"
-        case .checksumMismatch(let expected, let actual):
-            return "checksum mismatch: expected \(expected), got \(actual). "
-                 + "The download was not used."
-        case .serverDoesNotSupportResume:
-            return "server ignored a Range request; restart the download"
+            return "no descriptor for model \(id)"
+        case .checksumMismatch(let file, let expected, let actual):
+            return "checksum mismatch for \(file): expected \(expected), got "
+                 + "\(actual). The download was discarded."
+        case .noDigestAvailable(let file):
+            return "no checksum available for \(file), from the repository or "
+                 + "the provider. Refusing to install an unverified model (F21)."
         case .incomplete(let received, let expected):
             return "incomplete download: \(received) of \(expected) bytes"
         }
@@ -34,34 +35,45 @@ public actor ModelDownloader {
         self.session = session
     }
 
-    public func localURL(for model: ModelDescriptor,
-                         in directory: URL) -> URL {
-        directory.appendingPathComponent("\(model.identifier).bin")
+    public func directory(for model: ModelDescriptor, under root: URL) -> URL {
+        root.appendingPathComponent(model.identifier, isDirectory: true)
     }
 
-    /// Returns the on-disk URL, downloading only if it is missing or corrupt.
+    /// Downloads every file the model needs, verifying each one.
+    ///
+    /// A file already present with the right digest is left alone, which makes
+    /// this safe to call on every launch and cheap after the first.
     public func ensureAvailable(_ model: ModelDescriptor,
-                                in directory: URL,
+                                files: [RemoteFile],
+                                under root: URL,
                                 progress: ProgressHandler? = nil) async throws -> URL {
-        let destination = localURL(for: model, in: directory)
-        if fileManager.fileExists(atPath: destination.path),
-           try Self.sha256(ofFileAt: destination) == model.sha256 {
-            return destination
+        let target = directory(for: model, under: root)
+        try fileManager.createDirectory(at: target, withIntermediateDirectories: true)
+
+        for file in files {
+            guard let expected = file.sha256 else {
+                throw ModelDownloadError.noDigestAvailable(file: file.filename)
+            }
+            let destination = target.appendingPathComponent(file.filename)
+            if fileManager.fileExists(atPath: destination.path),
+               try Self.sha256(ofFileAt: destination) == expected {
+                continue
+            }
+            try await download(file, to: destination, progress: progress)
+            let actual = try Self.sha256(ofFileAt: destination)
+            guard actual == expected else {
+                // Never leave an unverified blob where a model is expected.
+                try? fileManager.removeItem(at: destination)
+                throw ModelDownloadError.checksumMismatch(
+                    file: file.filename, expected: expected, actual: actual)
+            }
         }
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        try await download(model, to: destination, progress: progress)
-        let actual = try Self.sha256(ofFileAt: destination)
-        guard actual == model.sha256 else {
-            // Never leave an unverified blob where a model is expected.
-            try? fileManager.removeItem(at: destination)
-            throw ModelDownloadError.checksumMismatch(expected: model.sha256, actual: actual)
-        }
-        return destination
+        return target
     }
 
     /// Downloads to `<destination>.part`, resuming if a partial file exists,
     /// and moves into place only after the bytes are all there.
-    private func download(_ model: ModelDescriptor,
+    private func download(_ file: RemoteFile,
                           to destination: URL,
                           progress: ProgressHandler?) async throws {
         let partial = destination.appendingPathExtension("part")
@@ -71,7 +83,7 @@ public actor ModelDownloader {
             existing = size.int64Value
         }
 
-        var request = URLRequest(url: model.url)
+        var request = URLRequest(url: file.url)
         if existing > 0 {
             request.setValue("bytes=\(existing)-", forHTTPHeaderField: "Range")
         }
@@ -101,7 +113,7 @@ public actor ModelDownloader {
                 try handle.write(contentsOf: buffer)
                 written += Int64(buffer.count)
                 buffer.removeAll(keepingCapacity: true)
-                progress?(Double(written) / Double(max(model.sizeBytes, 1)))
+                progress?(Double(written) / Double(max(file.sizeBytes, 1)))
             }
         }
         if !buffer.isEmpty {
@@ -111,8 +123,9 @@ public actor ModelDownloader {
         try handle.close()
         progress?(1.0)
 
-        guard written >= model.sizeBytes else {
-            throw ModelDownloadError.incomplete(received: written, expected: model.sizeBytes)
+        if file.sizeBytes > 0, written < file.sizeBytes {
+            throw ModelDownloadError.incomplete(received: written,
+                                                expected: file.sizeBytes)
         }
         if fileManager.fileExists(atPath: destination.path) {
             try fileManager.removeItem(at: destination)
