@@ -3,12 +3,41 @@
 ## Installing today
 
 ```sh
-brew install --formula https://raw.githubusercontent.com/lexian24/cochlea/main/Formula/cochlea.rb
+brew tap lexian24/cochlea https://github.com/lexian24/cochlea
+brew install cochlea
 ```
 
-This works. It installs the `dictate` CLI into a virtualenv. It does not
-install a dictation app and it does not transcribe audio — see
-[macos/README.md](../macos/README.md).
+This works now, with no extra repository. The two-argument form of `brew tap`
+accepts any git URL, so a repo that is not named `homebrew-cochlea` can still
+be a tap, and Homebrew reads formulae from a `Formula/` subdirectory — which is
+where `cochlea.rb` lives.
+
+It installs the `dictate` CLI into a virtualenv. It does not install a
+dictation app and does not transcribe audio.
+
+### Dropping the URL
+
+To let people type just `brew tap lexian24/cochlea`, the tap must live in a
+repository literally named `homebrew-cochlea`:
+
+```sh
+gh repo create lexian24/homebrew-cochlea --public --clone
+cp Formula/cochlea.rb homebrew-cochlea/Formula/
+cd homebrew-cochlea && git add -A && git commit -m "cochlea 0.1.0" && git push
+```
+
+Keeping the formula in this repo and copying on release is the simpler
+arrangement while there is one formula.
+
+### `brew install --cask cochlea`
+
+That is the form [Vorssaint](https://github.com/vorssaintapp/vorssaint-utils)
+uses, and it is where this should end up — but a cask installs a `.app`, and
+there isn't one. [`Casks/cochlea.rb`](../Casks/cochlea.rb) is written and
+records the three blockers: `macos/` must compile, the app must be signed and
+notarized (F22), and a release must carry a `.dmg`. Acceptance into
+homebrew-cask, so no tap is needed at all, additionally requires meeting their
+notability threshold.
 
 ### Why the formula pins a commit, not a tag
 

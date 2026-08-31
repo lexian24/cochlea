@@ -1,45 +1,65 @@
-# cochlea
+<div align="center">
 
-Dictation that adapts to **you** — your vocabulary, your names, your code-switching,
-your spellings. Runs entirely on your machine. No cloud, no account, no telemetry.
+<img src="Resources/logo/banner.png" alt="cochlea" width="820">
+
+**Dictation that learns how _you_ talk. On your Mac, and nowhere else.**
+
+[Install](#install) · [Why](#why-this-exists) · [How it works](#how-it-works) · [Privacy](#privacy-concretely) · [Roadmap](#roadmap) · [Contributing](#contributing)
 
 [![ci](https://github.com/lexian24/cochlea/actions/workflows/ci.yml/badge.svg)](https://github.com/lexian24/cochlea/actions/workflows/ci.yml)
-[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![tests](https://img.shields.io/badge/tests-137%20passing-brightgreen.svg)](#try-what-exists)
+[![macOS](https://img.shields.io/badge/macOS-14%2B%20Apple%20Silicon-black.svg)](macos/README.md)
+
+</div>
 
 ---
 
-> ### ⚠️ Status: early. You cannot dictate with this yet.
+> ### ⚠️ Early. You cannot dictate with this yet.
 >
-> The **adaptation engine** is built and tested — the correction store, the
-> correction/revision filter, phonetic matching, importers, and the lexicon.
+> The **adaptation engine** is built and tested — correction store, correction/
+> revision filter, phonetic matching, importers, lexicon, evaluation harness,
+> training orchestration. 137 tests, all executed.
 >
-> The **dictation app** exists only as a first draft in [`macos/`](macos/) that
-> **has never been compiled** — it was written on Linux, with no Swift
-> toolchain and no Apple Silicon. It also ships no speech model, so it cannot
-> transcribe. Treat the Python as the trustworthy half.
+> The **dictation app** is a first draft in [`macos/`](macos/) that **has never
+> been compiled** — it was written on Linux with no Swift toolchain. There is
+> no speech model wired up, so nothing transcribes audio yet.
 >
-> `brew install` works for the **CLI** (see below). It does not install a
-> dictation app, because there isn't one yet.
->
-> What you *can* do today is run the CLI, seed a lexicon from your own writing,
-> and read [the spec](docs/SPEC.md). If you're here to contribute, the spec is
-> the place to start.
+> The CLI installs and works today. The app does not exist yet. Both statements
+> are precise.
 
----
-
-## Install the CLI
+## Install
 
 ```sh
-brew install --formula https://raw.githubusercontent.com/lexian24/cochlea/main/Formula/cochlea.rb
+brew tap lexian24/cochlea https://github.com/lexian24/cochlea
+brew install cochlea
 ```
 
-This installs the `dictate` CLI only — the adaptation engine, importers and
-evaluation harness. It does **not** transcribe audio: there is no ASR backend
-yet. See [docs/RELEASING.md](docs/RELEASING.md).
+That installs the `dictate` CLI — the adaptation engine, importers and
+evaluation harness. It does **not** transcribe audio; there is no ASR backend
+yet.
+
+<details>
+<summary>Other ways</summary>
+
+```sh
+# one-shot, no tap
+brew install --formula https://raw.githubusercontent.com/lexian24/cochlea/main/Formula/cochlea.rb
+
+# from source
+git clone https://github.com/lexian24/cochlea && cd cochlea
+pip install -e ".[dev,zh,acoustic]"
+```
+
+`brew install --cask cochlea` will install the menu bar app once there is one.
+[`Casks/cochlea.rb`](Casks/cochlea.rb) records what that needs. See
+[docs/RELEASING.md](docs/RELEASING.md).
+
+</details>
 
 ## Why this exists
 
-Off-the-shelf dictation is trained on everyone, so it's mediocre for anyone in
+Off-the-shelf dictation is trained on everyone, so it is mediocre for anyone in
 particular. It mangles your colleagues' names, your project's jargon, the
 libraries you use daily, and — if you speak more than one language — most of
 what you actually say.
@@ -59,8 +79,7 @@ Three adaptation layers, each cheaper and faster than the one below it:
 | **Acoustic adapter** | your voice | monthly, opt-in | yes |
 
 The top two layers need **only text**. If you never let cochlea keep audio, you
-still get most of the benefit — that's a supported configuration, not a
-degraded one.
+still get most of the benefit — a supported configuration, not a degraded one.
 
 ```
 audio → VAD → ASR (frozen) → contextual biasing → post-correction LM → your cursor
@@ -74,32 +93,34 @@ audio → VAD → ASR (frozen) → contextual biasing → post-correction LM →
 
 Corrections are captured **only when you explicitly make them** — a fix-last
 hotkey or a review queue. cochlea does not watch your text fields. Reading
-arbitrary app windows via the Accessibility API would be fragile and would
+arbitrary app windows through the Accessibility API would be fragile and would
 contradict the whole point.
 
 ## Privacy, concretely
 
 - Nothing leaves your machine. There is no server to send it to.
-- **Audio retention is off by default.** When enabled, cochlea stores log-mel
-  spectrograms, not listenable audio; raw audio requires a separate opt-in.
+- **Audio retention is off by default.** When enabled, cochlea stores
+  log-mel spectrograms, not listenable audio; raw audio needs a separate opt-in.
+- Stored features are AES-GCM encrypted, capped by both age and hours, and
+  excluded from backup.
 - Importers read **only your own** messages and commits, and filter before
   anything touches disk — not after.
 - No permission is requested until you invoke the feature that needs it.
-- `dictate purge` deletes everything.
+- `dictate purge` deletes everything, including the key.
 
-The [invariants](docs/SPEC.md#6-invariants) list what the code is not allowed to
-do regardless of what any test says. Two of them are enforced by CI.
+The [invariants](docs/SPEC.md#6-invariants) list what the code may not do
+regardless of what any test says. Two are enforced by CI.
 
 ## Try what exists
 
 ```sh
 git clone https://github.com/lexian24/cochlea && cd cochlea
-pip install -e ".[dev,zh,acoustic]"    # zh = Mandarin, acoustic = encryption at rest
+pip install -e ".[dev,zh,acoustic]"
 pytest -q                      # 137 tests
 ```
 
-Seed a lexicon from your own git history — this is the real first step of the
-journey, and it works today. Illustrative output from a working codebase:
+Seed a lexicon from your own git history — the real first step of the journey,
+and it works today:
 
 ```console
 $ dictate import gitlog . --author you@example.com
@@ -110,29 +131,29 @@ imported 412 samples from gitlog:.
     mlx-tune                 x11
   orthography variant (F6): 'la' x14 vs 'lah' x9
     -- run `dictate lexicon canonicalize` to pick one
-
-$ dictate doctor
-cochlea            0.0.1
-schema version     1
-phonetic backends  en, zh (fallback: edit-distance)
-base model         none (M0 not implemented)
 ```
 
-The evaluation harness works today — it is what gates every future training
-run, so it had to exist first:
+The evaluation harness works too — it gates every future training run, so it
+had to exist first:
 
-```console
-$ dictate holdout                  # reserve a share, permanently, from training
-reserved 5 new item(s) at rotation 'r0'
-
-$ dictate eval                     # holdout metrics and the gate decision
-$ dictate adapters                 # versions, and which one is promoted
-$ dictate rollback --layer postcorr
+```sh
+dictate holdout                  # reserve a share, permanently, from training
+dictate eval                     # holdout metrics and the gate decision
+dictate adapters                 # versions, and which one is promoted
+dictate rollback --layer postcorr
+dictate doctor                   # paste this into a bug report
 ```
 
-`dictate train` and `rebuild` tell you what is missing (an MLX trainer) rather
-than failing obscurely — the orchestration around them, including the replay
-buffer and the resource gate, is built and tested.
+## Repository layout
+
+| Path | What it is | Verified? |
+|---|---|---|
+| `src/cochlea/` | Adaptation engine: store, attribution, phonetics, importers, lexicon, eval, training, retention, profiles | yes — 137 tests |
+| `macos/` | M0 dictation app (Swift) | **no — never compiled** |
+| `Formula/`, `Casks/` | Homebrew formula (works) and cask (template) | formula verified end to end |
+| `Resources/logo/` | Brand marks, generated by `Tools/make_logo.py` | — |
+| `docs/SPEC.md` | The engineering spec and handoff | — |
+| `docs/DECISIONS.md` | Decision records, with the reasoning kept | — |
 
 ## Roadmap
 
@@ -141,51 +162,48 @@ buffer and the resource gate, is built and tested.
 | **M0** | Competitive dictation, zero learning | draft Swift, **uncompiled**; model chosen, no backend |
 | **M1** | Correction capture | engine built, no UI (needs M0) |
 | **M2** | Lexicon and biasing | extraction + decay built; decode-time biasing needs an ASR |
-| **M3** | Evaluation harness — gates all training | **built** (no transcriber to score yet) |
+| **M3** | Evaluation harness — gates all training | **built** |
 | **M4** | Post-correction LM | replay buffer, resource gate, rebuild built; needs an MLX trainer |
 | **M5** | Acoustic adapter (opt-in) | retention, encryption, quarantine, purge built |
 | **M6** | Profiles and community adapters | profiles + formality built; registry not started |
 
-M0 is the gate that matters: if plain dictation isn't competitive with what you
-already use, nothing downstream gets a chance. Full criteria in
+M0 is the gate that matters: if plain dictation is not competitive with what
+you already use, nothing downstream gets a chance. Criteria in
 [the spec](docs/SPEC.md#5-milestones).
-
-## Repository layout
-
-| Path | What it is | Verified? |
-|---|---|---|
-| `src/cochlea/` | Adaptation engine: store, attribution, phonetics, importers, lexicon, eval harness, training orchestration, retention, profiles | yes — 137 tests |
-| `macos/` | M0 dictation app (Swift) | **no — never compiled** |
-| `Formula/` | Homebrew formula for the CLI | syntax only; not publishable |
-| `docs/SPEC.md` | The engineering spec and handoff | — |
 
 ## Contributing
 
 Read [docs/SPEC.md](docs/SPEC.md) first — it records the decisions, the failure
-modes the design has to survive, and the acceptance criteria for each milestone.
-The most useful contributions right now:
+modes the design must survive, and the acceptance criteria for each milestone.
+Most useful right now:
 
-- **M0**, the macOS app. The largest gap by far, and it blocks everything.
+- **M0**, the macOS app. The largest gap, and it blocks everything. Start at
+  [`macos/BUILDING.md`](macos/BUILDING.md).
 - **A phonetic backend for your language.** Implement `distance(a, b) -> float`
-  and register it; see [`src/cochlea/phonetics.py`](src/cochlea/phonetics.py).
+  and register it — see [`src/cochlea/phonetics.py`](src/cochlea/phonetics.py).
   Unsupported languages fall back to edit distance, so this is additive.
-- **An importer.** Implement `extract(source) -> Iterable[TextSample]`, filtering
-  to the user's own content *inside* `extract`.
+- **An importer.** Implement `extract(source) -> Iterable[TextSample]`,
+  filtering to the user's own content *inside* `extract`.
 
 New code must not violate an [invariant](docs/SPEC.md#6-invariants), and
-`pytest` must pass with and without the optional `zh` extra.
+`pytest` must pass with and without the optional extras.
 
 ## Not built here
 
 cochlea does not train a general speech model, does not improve with other
 people's data, and will not make an unfamiliar accent work well out of the box.
-It makes *your* dictation better on *your* machine by learning what you
-personally say. Homophones ("their"/"there") can't be fixed by vocabulary at
-all — that's what the post-correction layer is for.
+It makes *your* dictation better on *your* machine. Homophones
+("their"/"there") cannot be fixed by vocabulary at all — that is what the
+post-correction layer is for.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Model weights and training corpora carry their own
-terms; per [F23](docs/SPEC.md#f23--licensing-on-models-and-data) each shipped
-artifact's license gets recorded in `LICENSES-MODELS.md` before anything is
+MIT — see [LICENSE](LICENSE). Model weights and corpora carry their own terms;
+per [F23](docs/SPEC.md#f23--licensing-on-models-and-data) each shipped
+artifact's licence is recorded in `LICENSES-MODELS.md` before anything is
 distributed.
+
+The logo is generated by [`Tools/make_logo.py`](Tools/make_logo.py) and is MIT
+like the rest. If cochlea ever gets a userbase worth protecting, consider
+splitting brand from code the way [Vorssaint](https://github.com/vorssaintapp/vorssaint-utils)
+does with a `TRADEMARKS.md`.

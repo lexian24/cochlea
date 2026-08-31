@@ -35,6 +35,9 @@ swift build
 swift test          # CochleaCoreTests only; the rest needs a mic and a model
 ```
 
+**Building the actual `.app`, and what to expect on first compile:
+[BUILDING.md](BUILDING.md).**
+
 ## Deliberate gaps, not oversights
 
 - **`ModelCatalog.known` is empty.** SPEC §7 leaves the default base model open
