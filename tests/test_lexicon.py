@@ -1,7 +1,7 @@
 import time
 import pytest
 from cochlea.lexicon import (EXPIRY_SECONDS, MAX_BOOST, HomophoneRejected, Lexicon,
-                            detect_variants, extract_terms)
+                            detect_variants, extract_phrases, extract_terms)
 
 
 def test_boost_is_capped():
@@ -106,3 +106,184 @@ def test_unrelated_pairs_are_not_reported_as_variants(a, b):
     samples = [f"x {a}"] * 3 + [f"y {b}"] * 3
     pairs = {tuple(sorted((x, y))) for x, y, _, _ in detect_variants(samples, min_count=2)}
     assert tuple(sorted((a, b))) not in pairs
+
+
+# -- phrases -------------------------------------------------------------------
+
+
+CHAT = [
+    "I opened a pull request against main and the eval gate failed",
+    "The eval gate has to pass before promotion, every time",
+    "Can you review the pull request when the eval gate is green",
+    "We should run kubectl apply and check the nginx logs",
+    "kubectl apply is fine but the eval gate still blocks it",
+    "Run kubectl apply again after the pull request lands",
+]
+
+
+def test_extract_phrases_finds_what_the_user_repeats():
+    found = dict(extract_phrases(CHAT, min_count=2))
+    assert found["eval gate"] == 4
+    assert found["kubectl apply"] == 3
+
+
+def test_a_phrase_of_words_the_model_already_knows_is_not_admitted():
+    # "pull request" recurs three times in CHAT and is still rejected, because
+    # both of its words are ordinary English. Whisper does not get them wrong,
+    # so a boost cannot help -- it can only push the phrase over something the
+    # user actually said, which is F2 exactly.
+    assert "pull request" not in dict(extract_phrases(CHAT, min_count=2))
+
+
+def test_a_phrase_said_once_is_a_sentence_not_a_habit():
+    assert extract_phrases(["the eval gate failed once"], min_count=2) == []
+
+
+def test_windows_that_fell_in_the_wrong_place_are_not_admitted():
+    # "the eval gate" and "eval gate has" are artefacts of where the window
+    # landed. Admitting all three spends three entries to say one thing, and
+    # F2 punishes a large lexicon of weak entries much harder than a small one
+    # of strong entries.
+    found = dict(extract_phrases(CHAT, min_count=2))
+    assert "the eval gate" not in found
+    assert "eval gate has" not in found
+    assert "eval gate is" not in found
+
+
+def test_phrases_of_entirely_ordinary_words_are_rejected():
+    # These recur in anyone's writing. Boosting them biases the decoder
+    # towards nothing in particular at the cost of every word they compete
+    # with.
+    texts = ["we have to go there", "we have to be here", "we have to know"]
+    assert extract_phrases(texts, min_count=2) == []
+
+
+def test_a_phrase_is_never_assembled_across_punctuation():
+    # "logs. Deploy the" is not something anyone says, and a phrase that spans
+    # a sentence boundary can never be matched at decode time either.
+    texts = ["check the nginx logs. Deploy kubectl now"] * 3
+    found = dict(extract_phrases(texts, min_count=2))
+    assert not any("logs" in p and "Deploy" in p for p in found)
+
+
+def test_redactions_never_become_phrases():
+    # PLACEHOLDERS mark text the privacy pass removed. Reconstructing them
+    # into a lexicon entry would put them back.
+    from cochlea.privacy import PLACEHOLDERS
+
+    placeholder = sorted(PLACEHOLDERS)[0]
+    texts = [f"send it to {placeholder} tomorrow please"] * 4
+    assert not any(placeholder in p for p, _ in extract_phrases(texts, min_count=2))
+
+
+def test_a_longer_phrase_its_parts_already_account_for_is_dropped():
+    # Every occurrence of "check the nginx logs" is an occurrence of "nginx
+    # logs", so the longer one carries no evidence the shorter does not -- it
+    # costs an entry, and a share of the damage F2 bounds, to say the same
+    # thing.
+    texts = ["check the nginx logs today"] * 3
+    found = dict(extract_phrases(texts, min_count=2))
+    assert "nginx logs" in found
+    assert "check the nginx logs" not in found
+    assert "nginx logs today" not in found
+
+
+def test_a_longer_phrase_that_is_genuinely_rarer_survives():
+    # Subsumption must not swallow a real compound. Occurring less often than
+    # its parts is exactly what makes a longer phrase worth its own entry.
+    texts = ["run kubectl apply now"] * 4 + ["run kubectl apply manifest"] * 2
+    found = dict(extract_phrases(texts, min_count=2))
+    assert found["kubectl apply"] == 6
+    assert found["kubectl apply now"] == 4
+
+
+def test_single_character_words_are_not_part_of_a_phrase():
+    # `_WORD` requires a leading letter, so the flag in "kubectl apply -f"
+    # arrives as a bare "f" and produced "apply f" and "f now" as candidates.
+    texts = ["run kubectl apply -f now"] * 3
+    found = dict(extract_phrases(texts, min_count=2))
+    assert not any(len(w) < 2 for p in found for w in p.split())
+
+
+def test_max_words_bounds_the_phrase_length():
+    texts = ["kubectl apply the nginx deployment manifest today"] * 3
+    assert all(len(p.split()) <= 3
+               for p, _ in extract_phrases(texts, min_count=2, max_words=3))
+
+
+def test_a_phrase_can_be_admitted_to_the_lexicon_and_boosted():
+    # The end the extraction exists for: a phrase is a lexicon entry like any
+    # other, and biasing treats a single word as the one-element case.
+    lexicon = Lexicon()
+    for phrase, _ in extract_phrases(CHAT, min_count=3):
+        lexicon.add(phrase)
+    assert "eval gate" in lexicon.entries
+
+
+# -- persistence ---------------------------------------------------------------
+
+
+def test_a_lexicon_round_trips(tmp_path):
+    lexicon = Lexicon()
+    lexicon.add("kubectl")
+    lexicon.add("eval gate")
+    lexicon.record_hit("kubectl")
+    lexicon.canonicalize("kube-ctl", "kubectl")
+    path = lexicon.save(tmp_path / "lexicon.json")
+
+    back = Lexicon.load(path)
+    assert sorted(back.entries) == ["eval gate", "kubectl"]
+    assert back.entries["kubectl"].hits == 1
+    assert back.entries["kubectl"].boost == lexicon.entries["kubectl"].boost
+    assert back.apply_canonical("run kube-ctl now") == "run kubectl now"
+
+
+def test_the_file_is_readable_only_by_its_owner(tmp_path):
+    # These are terms lifted out of the user's private messages.
+    import os
+    import stat
+
+    path = Lexicon().save(tmp_path / "lexicon.json")
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+
+def test_a_missing_lexicon_is_an_empty_one_not_an_error(tmp_path):
+    # The normal state before the first import. Biasing improves ASR; it is
+    # never a prerequisite for it.
+    assert Lexicon.load(tmp_path / "nothing.json").entries == {}
+
+
+def test_a_corrupt_lexicon_does_not_stop_dictation(tmp_path):
+    path = tmp_path / "lexicon.json"
+    path.write_text("{ this is not json")
+    assert Lexicon.load(path).entries == {}
+
+
+def test_loading_does_not_re_run_the_admission_check(tmp_path):
+    # F5 admission is a decision already taken. Re-taking it on load would
+    # silently drop entries if the homophone table ever grew, and the user
+    # would have no way to tell that from the file not having been written.
+    from cochlea.lexicon import Entry
+
+    lexicon = Lexicon()
+    lexicon.entries["knew"] = Entry(term="knew", boost=1.5)
+    path = lexicon.save(tmp_path / "lexicon.json")
+    assert "knew" in Lexicon.load(path).entries
+
+
+def test_a_saved_boost_is_still_capped_on_load(tmp_path):
+    # F2's cap is not advisory, and a hand-edited file is exactly where an
+    # uncapped number would come from.
+    path = tmp_path / "lexicon.json"
+    path.write_text('{"entries": [{"term": "kubectl", "boost": 1000}]}')
+    assert Lexicon.load(path).entries["kubectl"].boost == MAX_BOOST
+
+
+def test_a_partial_write_never_replaces_a_good_lexicon(tmp_path):
+    # Written to a temporary file and renamed. A lexicon truncated by a crash
+    # mid-write loads without error and biases towards a fragment.
+    lexicon = Lexicon()
+    lexicon.add("kubectl")
+    path = lexicon.save(tmp_path / "lexicon.json")
+    assert not list(tmp_path.glob("*.tmp"))
+    assert Lexicon.load(path).entries

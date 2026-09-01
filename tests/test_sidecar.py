@@ -29,19 +29,21 @@ class FakeBackend:
     def warm_up(self):
         self.warmed += 1
 
-    def transcribe(self, samples, language=None):
+    def transcribe(self, samples, language=None, lexicon=None):
         if self.raises:
             raise self.raises
-        self.seen.append((list(samples), language))
-        return Transcription(text=f"{len(samples)} samples", language="en",
-                             inference_ms=7)
+        self.seen.append((list(samples), language, lexicon))
+        return Transcription(
+            text=f"{len(samples)} samples", language="en", inference_ms=7,
+            biased_terms=tuple(lexicon.entries) if lexicon else (),
+        )
 
 
-def drive(requests: bytes, backend=None):
+def drive(requests: bytes, backend=None, lexicon=None):
     """Run the server over a scripted stdin, return the replies it wrote."""
     backend = backend or FakeBackend()
     out = io.BytesIO()
-    server = Sidecar(backend, io.BytesIO(requests), out)
+    server = Sidecar(backend, io.BytesIO(requests), out, lexicon=lexicon)
     server.serve()
     out.seek(0)
     return [json.loads(line) for line in out.read().splitlines() if line], backend
@@ -106,7 +108,7 @@ def test_transcribe_carries_audio_and_returns_text():
     assert replies[1]["text"] == "3 samples"
     assert replies[1]["language"] == "en"
     assert replies[1]["inference_ms"] == 7
-    heard, language = backend.seen[0]
+    heard, language, _ = backend.seen[0]
     assert language is None
     assert all(math.isclose(a, b, rel_tol=1e-6) for a, b in zip(heard, samples))
 
@@ -179,3 +181,40 @@ def test_an_unknown_op_is_refused():
 def test_a_negative_sample_count_is_refused():
     replies, _ = drive(request("transcribe", b"", samples=-1))
     assert replies[1]["kind"] == "protocol"
+
+
+# -- contextual biasing (M2, D8) ----------------------------------------------
+
+
+def test_the_lexicon_reaches_the_backend_and_its_hits_come_back():
+    # The whole point of D5: inference in Python so the decode loop sits next
+    # to the lexicon. If the lexicon does not reach `transcribe`, the sidecar
+    # is a slower way to do what Swift could have done in-process.
+    from cochlea.lexicon import Lexicon
+
+    lexicon = Lexicon()
+    lexicon.add("kubectl")
+    replies, backend = drive(
+        request("transcribe", encode_samples([0.1]), samples=1), lexicon=lexicon)
+    assert backend.seen[0][2] is lexicon
+    assert replies[1]["biased_terms"] == ["kubectl"]
+
+
+def test_no_lexicon_means_no_biasing_and_an_empty_field():
+    replies, backend = drive(request("transcribe", encode_samples([0.1]), samples=1))
+    assert backend.seen[0][2] is None
+    assert replies[1]["biased_terms"] == []
+
+
+def test_the_ready_line_says_how_many_entries_are_loaded():
+    # Otherwise "biasing is on" and "biasing is on with an empty lexicon" look
+    # identical from the app's side, and the second is what an import that
+    # silently failed produces.
+    from cochlea.lexicon import Lexicon
+
+    lexicon = Lexicon()
+    lexicon.add("kubectl")
+    lexicon.add("nginx")
+    replies, _ = drive(b"", lexicon=lexicon)
+    assert replies[0]["lexicon_entries"] == 2
+    assert drive(b"")[0][0]["lexicon_entries"] == 0

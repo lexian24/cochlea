@@ -20,7 +20,8 @@ from .profiles import Formality, Profile, ProfileSet
 from .retention import FeatureStore, KeyStore, SpeakerVerifier
 from .training import ResourceGuard
 from .importers import get as get_importer
-from .lexicon import Lexicon, HomophoneRejected, detect_variants, extract_terms
+from .lexicon import (Lexicon, HomophoneRejected, detect_variants,
+                      extract_phrases, extract_terms)
 from .store import CorrectionStore
 
 NOT_YET = {
@@ -29,7 +30,6 @@ NOT_YET = {
     # Transcriber, which needs M0.
     "train": "M4/M5 -- orchestration built, needs an MLX Trainer",
     "rebuild": "M4 -- orchestration built, needs an MLX Trainer",
-    "lexicon": "M2 (extraction works today; persistence does not)",
 }
 
 
@@ -37,6 +37,12 @@ def default_store_path() -> Path:
     base = Path(os.environ.get("COCHLEA_HOME", Path.home() / ".cochlea"))
     base.mkdir(parents=True, exist_ok=True)
     return base / "corrections.db"
+
+
+def lexicon_path() -> Path:
+    base = Path(os.environ.get("COCHLEA_HOME", Path.home() / ".cochlea"))
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "lexicon.json"
 
 
 def registry_path() -> Path:
@@ -55,6 +61,14 @@ def _store(args) -> CorrectionStore:
 
 
 def cmd_import(args) -> int:
+    """Seed the lexicon from the user's own writing.
+
+    Two phases, and the split is deliberate. Nothing is written until
+    ``--commit``, so the first run is a proposal the user reads: this is text
+    lifted out of their private messages, and the least a tool can do before
+    keeping any of it is show them exactly what it took. It also means a bad
+    ``--min-count`` costs a re-run rather than a lexicon full of noise.
+    """
     imp = get_importer(args.importer)
     kwargs = {"author": args.author} if args.author else {}
     try:
@@ -62,25 +76,116 @@ def cmd_import(args) -> int:
     except ValueError as e:
         print(f"import failed: {e}", file=sys.stderr)
         return 1
-    terms = extract_terms((s.text for s in samples), min_count=args.min_count)
-    lx = Lexicon()
+
+    texts = [s.text for s in samples]
+    terms = extract_terms(texts, min_count=args.min_count)
+    # Phrases as well as words, because a phrase is what biasing is actually
+    # good at: "pull request" as one entry lifts "request" only after "pull",
+    # where two word entries lift it in every sentence the user speaks. The
+    # threshold is higher than for terms -- a word can be distinctive on one
+    # sighting, a word *sequence* has to recur before it is a habit.
+    phrases = ([] if args.no_phrases
+               else extract_phrases(texts, min_count=max(args.min_count, 3),
+                                    max_words=args.max_words))
+
+    lexicon = Lexicon.load(lexicon_path()) if args.commit else Lexicon()
+    before = set(lexicon.entries)
     added, rejected = [], []
-    for term, count in terms[: args.limit]:
+    for entry, count in list(terms)[: args.limit] + list(phrases)[: args.limit]:
         try:
-            lx.add(term)
-            added.append((term, count))
+            lexicon.add(entry)
+            added.append((entry, count))
         except HomophoneRejected:
-            rejected.append(term)
+            rejected.append(entry)
+
     print(f"imported {len(samples)} samples from {args.importer}:{args.source}")
-    print(f"  {len(added)} terms admitted to the lexicon")
-    for term, count in added[:20]:
-        print(f"    {term:24} x{count}")
+    words = [(t, c) for t, c in added if " " not in t]
+    multi = [(t, c) for t, c in added if " " in t]
+    print(f"  {len(words)} terms, {len(multi)} phrases")
+    for label, group in (("term", words), ("phrase", multi)):
+        for entry, count in group[:20]:
+            mark = " " if entry in before else "+"
+            print(f"    {mark} {label:6} {entry:28} x{count}")
     if rejected:
         print(f"  {len(rejected)} rejected as homophones (F5): {', '.join(rejected)}")
-    for a, b, ca, cb in detect_variants((s.text for s in samples))[:5]:
+    for a, b, ca, cb in detect_variants(texts)[:5]:
         print(f"  orthography variant (F6): {a!r} x{ca} vs {b!r} x{cb} "
-              f"-- run `dictate lexicon canonicalize` to pick one")
+              f"-- run `dictate lexicon canonicalize {a} {b}` to pick one")
+
+    if not args.commit:
+        print("\nNothing was written. Re-run with --commit to keep this.")
+        return 0
+    path = lexicon.save(lexicon_path())
+    print(f"\nwrote {len(lexicon.entries)} entries to {path}")
+    print("Dictation picks it up when the app next starts the ASR helper.")
     return 0
+
+
+def cmd_lexicon(args) -> int:
+    """Read and edit what dictation is biased towards."""
+    path = lexicon_path()
+    lexicon = Lexicon.load(path)
+
+    if args.action == "list":
+        if not lexicon.entries:
+            print(f"no lexicon at {path}\n"
+                  "Seed one with `dictate import <importer> <source> --commit`.")
+            return 0
+        print(f"{len(lexicon.entries)} entries in {path}\n")
+        rows = sorted(lexicon.entries.values(),
+                      key=lambda e: (-e.hits, e.term))
+        print(f"  {'entry':30} {'boost':>6} {'logits':>7} {'hits':>5} {'rejected':>9}")
+        for e in rows:
+            print(f"  {e.term:30} {e.boost:6.2f} "
+                  f"{_logit_boost(e.boost):7.1f} {e.hits:5} {e.rejections:9}")
+        return 0
+
+    if args.action == "add":
+        if not args.terms:
+            print("nothing to add", file=sys.stderr)
+            return 1
+        for term in args.terms:
+            try:
+                lexicon.add(term, boost=args.boost)
+                print(f"  + {term}")
+            except HomophoneRejected as exc:
+                print(f"  rejected {term}: {exc}", file=sys.stderr)
+        lexicon.save(path)
+        return 0
+
+    if args.action == "remove":
+        for term in args.terms:
+            lexicon.remove(term)
+            print(f"  - {term}")
+        lexicon.save(path)
+        return 0
+
+    if args.action == "canonicalize":
+        if len(args.terms) != 2:
+            print("canonicalize takes exactly two arguments: variant canonical",
+                  file=sys.stderr)
+            return 1
+        variant, canonical = args.terms
+        lexicon.canonicalize(variant, canonical)
+        lexicon.save(path)
+        print(f"  {variant!r} will be rewritten to {canonical!r} (F6)")
+        return 0
+
+    if args.action == "expire":
+        dead = lexicon.expire()
+        lexicon.save(path)
+        print(f"  expired {len(dead)} unused entries" + (f": {', '.join(dead)}" if dead else ""))
+        return 0
+
+    print(f"unknown action {args.action!r}", file=sys.stderr)
+    return 1
+
+
+def _logit_boost(strength: float) -> float:
+    """Imported lazily: `cochlea.biasing` reaches the phonetics stack."""
+    from .biasing import logit_boost
+
+    return logit_boost(strength)
 
 
 def cmd_review(args) -> int:
@@ -271,7 +376,11 @@ def cmd_asr_serve(args) -> int:
     """
     from .sidecar import serve
 
-    return serve(args.model, identifier=args.identifier)
+    # Loaded here rather than in `serve`, so the sidecar stays a pure protocol
+    # implementation and the tests can drive it without a filesystem.
+    lexicon = None if args.no_lexicon else Lexicon.load(lexicon_path())
+    return serve(args.model, identifier=args.identifier,
+                 lexicon=lexicon if lexicon and lexicon.entries else None)
 
 
 def cmd_asr_check(args) -> int:
@@ -310,6 +419,16 @@ def cmd_asr_check(args) -> int:
     samples = [v / 32768.0 for v in pcm]
     seconds = len(samples) / SAMPLE_RATE
 
+    # Biasing is measured against the same audio in the same process, because
+    # its cost is the thing worth knowing: D8 put 400 entries at +27%, and
+    # whether that fits the budget depends on the machine as much as D6's model
+    # choice does.
+    lexicon = Lexicon.load(lexicon_path()) if args.lexicon else None
+    if args.lexicon and not (lexicon and lexicon.entries):
+        print(f"no lexicon at {lexicon_path()}; measuring unbiased",
+              file=sys.stderr)
+        lexicon = None
+
     try:
         backend = MLXWhisperBackend(args.model, fp16=not args.fp32)
         started = time.perf_counter()
@@ -317,7 +436,8 @@ def cmd_asr_check(args) -> int:
         cold_ms = int((time.perf_counter() - started) * 1000)
         runs = []
         for _ in range(args.runs):
-            runs.append(backend.transcribe(samples, language=args.language))
+            runs.append(backend.transcribe(samples, language=args.language,
+                                           lexicon=lexicon))
     except ASRUnavailable as exc:
         print(f"asr unavailable: {exc}", file=sys.stderr)
         return 1
@@ -330,6 +450,10 @@ def cmd_asr_check(args) -> int:
     print(f"warm median        {warm} ms   over {args.runs} run(s)")
     print(f"budget             {'MET' if warm < 1000 else 'MISSED'} "
           f"(M0 acceptance: under 1000 ms warm)")
+    if lexicon is not None:
+        print(f"lexicon            {len(lexicon.entries)} entries")
+        hits = sorted({t for r in runs for t in r.biased_terms})
+        print(f"biased terms hit   {', '.join(hits) if hits else '(none)'}")
     print(f"language           {runs[-1].language}")
     print(f"text               {runs[-1].text}")
     print()
@@ -352,7 +476,21 @@ def main(argv: list[str] | None = None) -> int:
     imp.add_argument("--author", help="override the identity to filter on")
     imp.add_argument("--min-count", type=int, default=2)
     imp.add_argument("--limit", type=int, default=200)
+    imp.add_argument("--max-words", type=int, default=4,
+                     help="longest phrase to consider")
+    imp.add_argument("--no-phrases", action="store_true",
+                     help="single terms only")
+    imp.add_argument("--commit", action="store_true",
+                     help="write to the lexicon; without it this only proposes")
     imp.set_defaults(func=cmd_import)
+
+    lx = sub.add_parser("lexicon", help="read and edit what dictation is biased towards")
+    lx.add_argument("action", nargs="?", default="list",
+                    choices=["list", "add", "remove", "canonicalize", "expire"])
+    lx.add_argument("terms", nargs="*")
+    lx.add_argument("--boost", type=float, default=1.5,
+                    help="strength, 1.0 is neutral (default 1.5 = 6 logits, D8)")
+    lx.set_defaults(func=cmd_lexicon)
 
     sub.add_parser("review", help="show the correction queue").set_defaults(func=cmd_review)
 
@@ -392,6 +530,8 @@ def main(argv: list[str] | None = None) -> int:
     serve_p.add_argument("--model", required=True,
                          help="directory holding config.json and the weights")
     serve_p.add_argument("--identifier", help="name to report to the app")
+    serve_p.add_argument("--no-lexicon", action="store_true",
+                         help="decode without contextual biasing")
     serve_p.set_defaults(func=cmd_asr_serve)
 
     chk = sub.add_parser("asr-check", help="benchmark ASR on a 16 kHz mono WAV")
@@ -402,6 +542,8 @@ def main(argv: list[str] | None = None) -> int:
     chk.add_argument("--runs", type=int, default=3)
     chk.add_argument("--fp32", action="store_true",
                      help="full precision; roughly halves throughput (D6)")
+    chk.add_argument("--lexicon", action="store_true",
+                     help="bias towards ~/.cochlea/lexicon.json and report the cost")
     chk.set_defaults(func=cmd_asr_check)
 
     pur = sub.add_parser("purge", help="delete stored data")

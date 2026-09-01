@@ -517,3 +517,71 @@ three-minute session would have reported three minutes of latency. It now
 measures from the audio being complete to work starting on it, which is the
 drain wait plus queue time: the wait the user actually experiences after they
 stop speaking.
+
+---
+
+## D10 — The lexicon is a file, and biasing is wired to it
+
+**Date.** 2026-09-01. **Status.** Accepted.
+
+**Context.** D8 established that contextual biasing works and found its
+working point. What it did not do was connect anything: `dictate import` built
+a `Lexicon` in memory, printed what it had found, and discarded it. The decode
+loop and the lexicon were in the same process — D5's entire justification —
+and never met.
+
+**The path, end to end.** `dictate import text <file> --author <you>` →
+`~/.cochlea/lexicon.json` → `dictate asr-serve` loads it → the decoder biases
+towards it. Measured on the same synthesised utterance as D8, through the
+shipping code rather than a scratch script:
+
+| | transcript | warm median |
+|---|---|---|
+| unbiased | "…check the **gink's** logs" | 295 ms |
+| 5 entries | "…check the **nginx** logs" | 303–309 ms |
+
+**Strength maps to logits at a fixed rate.** The lexicon's scale (1.0 neutral,
+capped at 3.0) is not the decoder's. The conversion is chosen so the lexicon's
+default strength of 1.5 lands exactly on D8's measured working point of 6.0
+logits, with a hard ceiling of 8.0 — above the working point, well below the
+20 where over-triggering was looked for and not found. F2's cap is therefore
+enforced twice, and the second one is the one that reaches the decoder.
+
+**Phrases, not just words, and it is the same mechanism.** The unit is a token
+*sequence*; a single word is the one-element case. Verified against the real
+BPE rather than a stand-in: " request" is boosted only after " pull" has been
+generated, never on its own. This matters beyond convenience — two word
+entries for "pull request" lift "request" in every sentence the user speaks,
+which is precisely the over-triggering F2 describes.
+
+Both surface forms of every entry are indexed, with and without a leading
+space. Whisper's BPE makes " kubectl" and "kubectl" different tokens entirely
+(and "pull request" without the space tokenises as `p`/`ull`/` request`), so
+indexing one form biases a word mid-sentence but not at the start of one —
+which reads as the feature working intermittently rather than as a bug.
+
+**JSON, not a table in `adapters.db`.** The lexicon is small, rewritten whole,
+and is the one piece of adaptation state a user might reasonably want to read,
+edit or delete by hand. That is the difference between a privacy claim someone
+can check and one they have to take on faith. Written 0600 via a temporary
+file and a rename, because a lexicon truncated mid-write loads without error
+and biases towards a fragment.
+
+**Import proposes; it does not write.** `--commit` is required. This is text
+lifted out of the user's private messages, and the least the tool can do
+before keeping any of it is show them exactly what it took. It is also the
+mitigation in force for F25.
+
+**A text importer, because invariant 3 is the hard part.** `gitlog` filters by
+author inside git, so other people's commits are never read. A chat export has
+no such structure: both halves are in one file in the same shape. The text
+importer detects the conversation shape, and when it finds more than one
+speaker and no `--author`, it **refuses** — it does not import and filter, and
+it does not guess. Prose with no speaker prefixes is taken whole, since the
+user chose the file and there is no second party to exclude.
+
+**Not done.** The app does not yet feed hits back: the sidecar reports
+`biased_terms` on every transcription and nothing reads them, so F2's decay
+still has no negative signal in the running system. That closes when correction
+capture (M1) lands, which is where the lexicon gets a second writer and the
+question of who owns the file has to be settled.

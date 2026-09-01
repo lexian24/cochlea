@@ -25,7 +25,7 @@ it, is recorded in [Appendix B](#implementation-state) and
   - [2.3 Multi-user and multi-context](#23-multi-user-and-multi-context) (F10–F12)
   - [2.4 Model lifecycle](#24-model-lifecycle) (F13–F17)
   - [2.5 Performance and UX](#25-performance-and-ux) (F18–F20)
-  - [2.6 Project-level](#26-project-level) (F21–F24)
+  - [2.6 Project-level](#26-project-level) (F21–F26)
 - [3. Personas and journeys](#3-personas-and-journeys) (P1–P6)
 - [4. Architecture](#4-architecture)
 - [5. Milestones](#5-milestones) (M0–M6)
@@ -336,6 +336,51 @@ This project is large enough to stall.
 **Mitigation:** M0 must be a genuinely good dictation app with no learning at
 all. If M0 is not competitive with existing tools, nothing downstream matters,
 because nobody stays long enough to generate corrections. **M0.**
+
+#### F25 — The lexicon fills with words the model already knows
+
+Term extraction decides what counts as project vocabulary by asking whether a
+word is absent from a baseline list. Every ordinary word the list happens to
+miss therefore becomes a lexicon entry — and an entry for a word Whisper
+already gets right cannot help, only push that word over something the user
+actually said. This is F2 arriving through the import path rather than through
+the correction loop, and it arrives in bulk: six lines of chat proposed
+`gate`, `logs` and `request` alongside `kubectl` and `nginx`.
+
+The baseline is the weak point and it is structural. A word list that is small
+enough to read is too small to be a frequency model, and a spelling dictionary
+large enough to cover ordinary English also covers the rare words a user
+genuinely needs boosted.
+
+**Mitigation, in force:** the baseline was widened and made suffix-aware, so
+inflections match their lemma (`logs` → `log`); phrases made entirely of
+ordinary words are refused outright; and `dictate import` proposes without
+writing, so a human sees every entry before it can bias anything. **M2.**
+
+**Mitigation, still owed:** the right signal is not an English frequency list
+at all but the ASR model's own tokenizer — a word it encodes as one token is
+one it knows, and a word that shatters into pieces is one it will get wrong.
+That is available wherever the ASR extra is installed and is the correct
+long-term replacement for the bundled list.
+
+#### F26 — Asynchronous commits reach the cursor out of order
+
+Anything that transcribes more than one piece of audio per dictation session
+must type them in the order they were spoken. Independent tasks do not: a
+shorter segment decodes faster and overtakes a longer one that started first,
+which was measured, not theorised — five commits with inverted durations
+arrived exactly reversed.
+
+What makes it severe rather than untidy is F18. Text at the user's cursor
+cannot be revised without backspacing, so an out-of-order commit is not a
+glitch that resolves; it is permanent, in the user's document, and it looks
+like the transcription was wrong rather than late.
+
+**Mitigation:** commits are serialised through a queue whose ordering is
+structural rather than probabilistic — every entry awaits its predecessor, and
+entries are only ever created on the main actor in capture order. Any future
+path that commits text asynchronously (a post-correction pass, a second
+recogniser) goes through the same queue rather than alongside it. **M0.**
 
 ---
 
@@ -699,6 +744,8 @@ modes it is supposed to close.
 | F22 | Gatekeeper blocks unsigned app | before M0 ships |
 | F23 | Licensing on models and data | before any community adapter ships |
 | F24 | Scope | M0 |
+| F25 | Lexicon fills with words the model already knows | M2 |
+| F26 | Asynchronous commits reach the cursor out of order | M0 |
 
 † Assigned during handoff; the brief left these two unnumbered. Reasoning is
 recorded at [F4](#f4--survivorship-bias-in-the-signal) and
@@ -798,7 +845,8 @@ The repository is **public**.
 
 The layers that do not require macOS are implemented and tested: the correction
 store, the F1 attribution filter, the pluggable phonetic backends, the gitlog
-importer with PII redaction, and the lexicon. The persona journeys in
+and text importers with PII redaction, and the lexicon — extraction,
+persistence, and the token-sequence biasing that reaches the decoder. The persona journeys in
 `tests/test_journeys.py` execute P1, P2, P4, P5 and P6 against them.
 
 Running those journeys against a real repository is what surfaced the defects
@@ -849,8 +897,24 @@ than by argument, and each is recorded where the reasoning lives:
   (`dictate asr-check`). One machine is not enough to reverse
   [D1](DECISIONS.md), and the record says so. ([D6](DECISIONS.md))
 
-What remains unproven is everything that needs a person: the hotkey, the
-microphone, and typing at the cursor. Those are listed in
-[macos/BUILDING.md](../macos/BUILDING.md), and no amount of CI will close them.
+**M2's mechanism is now wired rather than argued.** `dictate import` writes a
+lexicon, `dictate asr-serve` loads it, and the decoder biases towards it —
+measured through the shipping path, not a scratch script: "gink's" becomes
+"nginx" for about 10 ms on five entries ([D8](DECISIONS.md),
+[D10](DECISIONS.md)). The unit is a token sequence, so a phrase is biased in
+context and a single word is the one-element case of the same mechanism. What
+is missing is the loop back: the sidecar reports which entries won and nothing
+reads it, so F2's decay has no negative signal until correction capture (M1)
+exists.
+
+The hand-testing that closed T1–T7 also changed what this section can claim.
+Six runtime defects were found only by a person holding the key, and two of
+them — a stale audio graph blocking the main actor, and a VAD threshold below
+the room's own noise floor — could not have been found any other way. What
+remains unproven is what streaming and latch activation added: whether text
+arrives mid-sentence at the right moments, and whether 0.7 s is where a clause
+actually ends. Those are T9 and T10 in [macos/TESTING.md](../macos/TESTING.md),
+and no amount of CI will close them either.
+
 The F23 licence audit (`LICENSES-MODELS.md`) is also still outstanding, as is
 F22 signing.

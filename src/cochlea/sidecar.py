@@ -86,10 +86,15 @@ class Sidecar:
     would buy nothing but a way to interleave two replies on one pipe.
     """
 
-    def __init__(self, backend, stdin: BinaryIO, stdout: BinaryIO):
+    def __init__(self, backend, stdin: BinaryIO, stdout: BinaryIO, lexicon=None):
         self.backend = backend
         self.stdin = stdin
         self.stdout = stdout
+        # Held for the life of the process, not reloaded per utterance: the
+        # tokenised bias index is cached against it, and rebuilding that on
+        # every transcription would put the cost D8 measured at +81 ms for 400
+        # entries back into every decode.
+        self.lexicon = lexicon
 
     def _send(self, message: dict) -> None:
         self.stdout.write(json.dumps(message).encode("utf-8") + b"\n")
@@ -102,6 +107,7 @@ class Sidecar:
             "protocol": PROTOCOL_VERSION,
             "backend": self.backend.identifier,
             "sample_rate": SAMPLE_RATE,
+            "lexicon_entries": len(self.lexicon.entries) if self.lexicon else 0,
         })
 
     def serve(self) -> int:
@@ -145,13 +151,20 @@ class Sidecar:
                 raise ProtocolError(f"bad sample count {declared!r}")
             payload = _read_exactly(self.stdin, declared * 4)
             samples = decode_samples(payload)
-            result = self.backend.transcribe(samples, language=request.get("language"))
+            result = self.backend.transcribe(samples,
+                                             language=request.get("language"),
+                                             lexicon=self.lexicon)
             return {
                 "ok": True,
                 "op": "transcribe",
                 "text": result.text,
                 "language": result.language,
                 "inference_ms": result.inference_ms,
+                # Which biased terms landed. The app does not read this yet;
+                # it is here because F2's decay needs the signal and the
+                # alternative -- the sidecar mutating the lexicon on disk
+                # behind the app's back -- makes two writers for one file.
+                "biased_terms": list(result.biased_terms),
             }
         raise ProtocolError(f"unknown op {op!r}")
 
@@ -173,7 +186,8 @@ def _silence_stray_stdout() -> BinaryIO:
     return raw
 
 
-def serve(model_path: str | Path, *, identifier: str | None = None) -> int:
+def serve(model_path: str | Path, *, identifier: str | None = None,
+          lexicon=None) -> int:
     """Entry point for ``dictate asr-serve``."""
     stdout = _silence_stray_stdout()
     try:
@@ -184,4 +198,4 @@ def serve(model_path: str | Path, *, identifier: str | None = None) -> int:
              "error": str(exc)}).encode("utf-8") + b"\n")
         stdout.flush()
         return 1
-    return Sidecar(backend, sys.stdin.buffer, stdout).serve()
+    return Sidecar(backend, sys.stdin.buffer, stdout, lexicon=lexicon).serve()

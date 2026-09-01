@@ -19,10 +19,17 @@ fully functional, and the import graph is where that is easiest to break.
 
 from __future__ import annotations
 
+import contextlib
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+# `cochlea.biasing` is imported lazily, inside the two functions that use it.
+# It reaches `cochlea.lexicon` and from there `cochlea.phonetics`, which pulls
+# pypinyin at import: 72 ms of the 107 ms it costs to import this module, or
+# two thirds of it, paid by the sidecar at startup for something no unbiased
+# decode touches. F19 makes that a number worth not spending.
 
 SAMPLE_RATE = 16_000
 
@@ -41,6 +48,12 @@ class Transcription:
     text: str
     language: str | None
     inference_ms: int
+    #: Lexicon entries that were boosted and appeared in the result.
+    #:
+    #: F2's decay and expiry key off use, and an entry boosted every utterance
+    #: that never wins is indistinguishable from one never tried unless the
+    #: decode says which ones landed. Empty when no lexicon was supplied.
+    biased_terms: tuple[str, ...] = ()
 
 
 class ASRUnavailable(RuntimeError):
@@ -52,7 +65,8 @@ class ASRBackend(Protocol):
 
     def warm_up(self) -> None: ...
 
-    def transcribe(self, samples, language: str | None = None) -> Transcription: ...
+    def transcribe(self, samples, language: str | None = None,
+                   lexicon=None) -> Transcription: ...
 
 
 def verify_model_directory(path: Path) -> Path:
@@ -128,7 +142,8 @@ class MLXWhisperBackend:
                    path_or_hf_repo=self.model_path,
                    fp16=self.fp16)
 
-    def transcribe(self, samples, language: str | None = None) -> Transcription:
+    def transcribe(self, samples, language: str | None = None,
+                   lexicon=None) -> Transcription:
         import numpy as np
 
         transcribe = self._load()
@@ -139,18 +154,150 @@ class MLXWhisperBackend:
         # wants: it is a large install, it is absent from a stock macOS, and
         # the app already holds the samples in memory. Passing the array skips
         # load_audio entirely.
-        result = transcribe(
-            audio,
-            path_or_hf_repo=self.model_path,
-            language=language,
-            fp16=self.fp16,
-        )
+        with biased_decoding(lexicon):
+            result = transcribe(
+                audio,
+                path_or_hf_repo=self.model_path,
+                language=language,
+                fp16=self.fp16,
+            )
         elapsed_ms = int((time.perf_counter() - started) * 1000)
+        text = result.get("text", "").strip()
+        if lexicon is None:
+            hits: tuple[str, ...] = ()
+        else:
+            from .biasing import credit_hits
+
+            hits = tuple(credit_hits(lexicon, text))
         return Transcription(
-            text=result.get("text", "").strip(),
+            text=text,
             language=result.get("language"),
             inference_ms=elapsed_ms,
+            biased_terms=hits,
         )
+
+
+# -- contextual biasing (M2, D8) ----------------------------------------------
+#
+# The one piece of coupling to mlx-whisper's internals this design accepts.
+# ``DecodingTask.__init__`` builds ``self.logit_filters`` as a plain list with
+# no public injection point, so appending to it means wrapping that
+# initialiser. The alternative -- ``initial_prompt`` -- is not a biasing hook:
+# it conditions the context and competes for the 224-token prompt budget, and
+# it does not adjust token scores at all. See D8.
+
+#: The lexicon in force for the current ``transcribe`` call, or ``None``.
+#:
+#: A module-level slot rather than a parameter because the filter is
+#: constructed deep inside mlx-whisper, several frames below anything cochlea
+#: calls. The sidecar is single-threaded and holds the model for the life of
+#: the process (D5), so there is exactly one decode in flight at a time.
+_active_lexicon = None
+
+#: Bumped whenever the active lexicon changes, so a cached index built for a
+#: previous one is never reused. Comparing lexicon contents would be more
+#: precise and more expensive than rebuilding.
+_lexicon_generation = 0
+
+#: ``id(tokenizer) -> (generation, BiasIndex)``. One decode makes a new
+#: ``DecodingTask`` per 30-second window and again per temperature fallback,
+#: so tokenising 400 entries in the initialiser would repeat several times per
+#: utterance.
+_index_cache: dict = {}
+
+
+class _LexiconBiasFilter:
+    """Adds each entry's boost to its next token, at every decode step.
+
+    Implements mlx-whisper's ``LogitFilter`` structurally: the list it joins is
+    duck-typed, so subclassing would mean importing the class at module scope
+    and dragging MLX in with it.
+    """
+
+    def __init__(self, index):
+        self.index = index
+
+    def apply(self, logits, tokens):
+        import mlx.core as mx
+        import numpy as np
+
+        rows = np.asarray(tokens)
+        if rows.ndim == 1:
+            rows = rows[None, :]
+        delta = np.zeros(logits.shape, dtype=np.float32)
+        vocabulary = delta.shape[-1]
+        for row in range(rows.shape[0]):
+            # Per row, because best-of sampling decodes several candidate
+            # sequences at once and they have different histories -- so they
+            # are at different points in a phrase and must not share a boost.
+            for token, boost in self.index.boosts_for(rows[row].tolist()).items():
+                if token < vocabulary:
+                    delta[row, token] = boost
+        return logits + mx.array(delta)
+
+
+def _install_bias_filter() -> None:
+    """Wrap ``DecodingTask.__init__`` so every decode carries the filter.
+
+    Idempotent, and safe to call when no lexicon is active: the filter is built
+    from whatever index the active lexicon produces, and no active lexicon
+    means no filter is appended at all. Patching once and gating per call is
+    what keeps an unbiased decode paying nothing.
+    """
+    from mlx_whisper import decoding
+
+    if getattr(decoding.DecodingTask, "_cochlea_biasing", False):
+        return
+    original = decoding.DecodingTask.__init__
+
+    def __init__(self, model, options):
+        original(self, model, options)
+        index = _index_for(self.tokenizer)
+        if index:
+            self.logit_filters.append(_LexiconBiasFilter(index))
+
+    decoding.DecodingTask.__init__ = __init__
+    decoding.DecodingTask._cochlea_biasing = True
+
+
+def _index_for(tokenizer):
+    """The bias index for the active lexicon, tokenised by this tokenizer.
+
+    Built here rather than in ``transcribe`` because this is the first place
+    the tokenizer actually being used is in scope -- constructing a matching
+    one from outside means reproducing mlx-whisper's choice of multilingual
+    flag, language and task, and getting any of them wrong yields token ids
+    that silently boost the wrong words.
+    """
+    if _active_lexicon is None:
+        return None
+    from .biasing import build_index
+
+    key = id(tokenizer)
+    cached = _index_cache.get(key)
+    if cached is not None and cached[0] == _lexicon_generation:
+        return cached[1]
+    index = build_index(_active_lexicon, tokenizer.encode)
+    _index_cache[key] = (_lexicon_generation, index)
+    return index
+
+
+@contextlib.contextmanager
+def biased_decoding(lexicon):
+    """Bias one decode towards ``lexicon``, or nothing if it is ``None``."""
+    global _active_lexicon, _lexicon_generation
+
+    if lexicon is None or not lexicon.entries:
+        yield
+        return
+    _install_bias_filter()
+    previous, _active_lexicon = _active_lexicon, lexicon
+    _lexicon_generation += 1
+    try:
+        yield
+    finally:
+        _active_lexicon = previous
+        _lexicon_generation += 1
 
 
 def available() -> bool:

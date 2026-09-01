@@ -28,8 +28,9 @@ class Importer(Protocol):
 
 
 from .gitlog import GitLogImporter  # noqa: E402
+from .textfile import TextFileImporter  # noqa: E402
 
-REGISTRY = {imp.name: imp for imp in (GitLogImporter(),)}
+REGISTRY = {imp.name: imp for imp in (GitLogImporter(), TextFileImporter())}
 
 
 def get(name: str) -> Importer:
