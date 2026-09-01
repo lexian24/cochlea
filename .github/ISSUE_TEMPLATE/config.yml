@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Design question — why is it built this way?
+    url: https://github.com/lexian24/cochlea/blob/main/docs/SPEC.md
+    about: The spec records the failure modes the design has to survive. Most "why not just…" questions are answered there with a reason.
+  - name: Security vulnerability
+    url: https://github.com/lexian24/cochlea/security/advisories/new
+    about: Report privately, not as an issue.

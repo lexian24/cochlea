@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cochlea"
-version = "0.1.0"
-description = "Local-only personalized dictation. Core adaptation layers."
+version = "0.2.0"
+description = "Local-only personalized dictation that adapts to one person"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

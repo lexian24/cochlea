@@ -1,0 +1,88 @@
+name: Bug report
+description: Something behaves differently from what it says it does.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most of this app's failures are silent, so "it didn't work" is not
+        something anyone can act on. The fields below are the ones that have
+        actually let bugs be found and fixed.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      options:
+        - The macOS app (dictation, hotkey, menu bar, settings)
+        - The `dictate` CLI
+        - Speech recognition quality
+        - Importing or the lexicon
+        - Corrections
+        - Install (Homebrew, building from source)
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected instead
+      placeholder: |
+        I tapped ⌃⌥D, said "deploy with kubectl", and tapped again.
+        Nothing appeared at my cursor. I expected the sentence.
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: The log
+      description: |
+        Run the app from a terminal — `./build/cochlea.app/Contents/MacOS/cochlea` —
+        or, if it was launched from Finder,
+        `log stream --predicate 'subsystem == "com.cochlea.app"' --style compact`.
+        Paste the lines around the moment it went wrong. This is usually the
+        whole report: the timing lines alone have identified four separate
+        defects.
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Mac and macOS
+      placeholder: "M2 MacBook Air, 8 GB, macOS 15.1"
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: The output of `dictate doctor`, or just which model you use.
+      placeholder: "whisper-small"
+
+  - type: dropdown
+    id: microphone
+    attributes:
+      label: Microphone
+      description: |
+        Worth asking, because it has mattered: `whisper-small` is noticeably
+        weaker on a narrowband headset mic than on the built-in one.
+      options:
+        - Built-in
+        - AirPods or another Bluetooth headset
+        - Wired headset or external mic
+        - Not relevant to this bug
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Before filing
+      options:
+        - label: I re-ran `Tools/setup-testing.sh` (or reinstalled) after updating.
+        - label: I checked whether this is listed as deliberate in [docs/SPEC.md](../blob/main/docs/SPEC.md) or [docs/DECISIONS.md](../blob/main/docs/DECISIONS.md).

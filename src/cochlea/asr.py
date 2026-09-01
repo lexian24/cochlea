@@ -315,7 +315,11 @@ def available() -> bool:
 def describe() -> str:
     """One line for `dictate doctor`."""
     if not available():
-        return "none (install the 'asr' extra; needs Apple Silicon)"
+        # Names the package, not just the extra. "install the 'asr' extra" does
+        # not tell someone what is missing or why it might not install, and
+        # this line is the first place a formula-only install looks.
+        return "none -- mlx-whisper not installed (pip install 'cochlea[asr]'; " \
+               "Apple Silicon only)"
     try:
         from mlx_whisper import _version
 

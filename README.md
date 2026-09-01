@@ -4,18 +4,18 @@
 
 **Dictation that learns how _you_ talk. On your Mac, and nowhere else.**
 
-[Install](#install) · [Why](#why-this-exists) · [How it works](#how-it-works) · [Privacy](#privacy-concretely) · [Roadmap](#roadmap) · [Contributing](#contributing)
+[Install](#install) · [Why](#why-this-exists) · [How it works](#how-it-works) · [Privacy](docs/PRIVACY.md) · [Roadmap](#roadmap) · [Contributing](CONTRIBUTING.md)
 
 [![ci](https://github.com/lexian24/cochlea/actions/workflows/ci.yml/badge.svg)](https://github.com/lexian24/cochlea/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![tests](https://img.shields.io/badge/tests-137%20passing-brightgreen.svg)](#try-what-exists)
+[![tests](https://img.shields.io/badge/tests-232%20python%20%2B%20106%20swift-brightgreen.svg)](#try-what-exists)
 [![macOS](https://img.shields.io/badge/macOS-14%2B%20Apple%20Silicon-black.svg)](macos/README.md)
 
 </div>
 
 ---
 
-> ### ⚠️ Early. It dictates; it does not yet learn.
+> ### ⚠️ Early. It dictates and it adapts; it does not train yet.
 >
 > **You can dictate with this.** Press the shortcut, speak, and the words
 > appear at your cursor — in TextEdit, a browser, VS Code — at 383–441 ms
@@ -101,19 +101,35 @@ The top two layers need **only text**. If you never let cochlea keep audio, you
 still get most of the benefit — a supported configuration, not a degraded one.
 
 ```
-audio → VAD → ASR (frozen) → contextual biasing → post-correction LM → your cursor
-                                       ↓
-                        fix-last hotkey / review queue
-                                       ↓
-                             attribution filter
-                                       ↓
-                              correction store  ← the durable asset
+             ┌──────────────── lexicon ◀────────────┐
+             ▼                                      │  instantly
+audio → VAD → ASR (frozen) → biasing → your cursor  │
+                                       │            │
+                            fix-last ──┴────────────┤
+                                       │            │
+                            attribution filter ─────┘
+                                       ▼
+                              correction store ─────▶ post-correction LM
+                              the durable asset        (nightly, not built)
 ```
 
-Corrections are captured **only when you explicitly make them** — a fix-last
-hotkey or a review queue. cochlea does not watch your text fields. Reading
-arbitrary app windows through the Accessibility API would be fragile and would
-contradict the whole point.
+The upper loop closes today and needs no training: fix a misheard word once,
+it enters the lexicon, and the next sentence gets it right. The lower one —
+learning your accent and phrasing from those pairs — is what still needs a
+trainer.
+
+Corrections are captured **only when you explicitly make them**. cochlea does
+not watch your text fields. Reading arbitrary app windows through the
+Accessibility API would be fragile and would contradict the whole point — and
+the cost of that choice is real: cochlea captures far fewer corrections than a
+design that watched your editor, so it learns more slowly. That trade is the
+point.
+
+<div align="center">
+<img src="Resources/logo/menubar-states.png" alt="The menu bar icon in its four states, on a light and a dark menu bar" width="430">
+<br>
+<sub>The icon inverts for exactly as long as the microphone is open.</sub>
+</div>
 
 ## Privacy, concretely
 
@@ -129,6 +145,10 @@ contradict the whole point.
 
 The [invariants](docs/SPEC.md#6-invariants) list what the code may not do
 regardless of what any test says. Two are enforced by CI.
+
+Every claim above is meant to be checkable from outside the project.
+[**docs/PRIVACY.md**](docs/PRIVACY.md) says how — where each file lives, what
+is in it, and the commands to look for yourself.
 
 ## Try what exists
 
@@ -217,20 +237,36 @@ you already use, nothing downstream gets a chance. Criteria in
 
 ## Contributing
 
-Read [docs/SPEC.md](docs/SPEC.md) first — it records the decisions, the failure
-modes the design must survive, and the acceptance criteria for each milestone.
-Most useful right now:
+[**CONTRIBUTING.md**](CONTRIBUTING.md) covers the rules that will surprise
+you. Read [docs/SPEC.md](docs/SPEC.md) before proposing a change to how
+adaptation works — it is a register of failure modes, and most obvious
+improvements are already refuted there with a reason.
 
-- **M0**, the macOS app. The largest gap, and it blocks everything. Start at
-  [`macos/BUILDING.md`](macos/BUILDING.md).
-- **A phonetic backend for your language.** Implement `distance(a, b) -> float`
-  and register it — see [`src/cochlea/phonetics.py`](src/cochlea/phonetics.py).
-  Unsupported languages fall back to edit distance, so this is additive.
+Most useful right now, roughly in order:
+
+- **Hand-test it on your Mac.** This is the largest gap by some distance.
+  Six defects have been found this way and none of them could have been found
+  any other way — an audio graph that blocked the main thread, a voice
+  detector whose threshold sat below room noise. The walkthrough is
+  [`macos/TESTING.md`](macos/TESTING.md), written so a report is actionable.
+  Different hardware and a different microphone are the interesting variables:
+  `whisper-small` is noticeably weaker on a narrowband headset.
+- **A phonetic backend for your language.** Implement
+  `distance(a, b) -> float` and register it — see
+  [`src/cochlea/phonetics.py`](src/cochlea/phonetics.py). Unsupported
+  languages fall back to edit distance, so this is purely additive.
 - **An importer.** Implement `extract(source) -> Iterable[TextSample]`,
-  filtering to the user's own content *inside* `extract`.
+  filtering to the user's own content *inside* `extract` — never after.
+  A Messages or Slack-export importer would be immediately useful.
+- **The review queue as a screen.** It exists as `dictate review` and has no
+  UI, so the corrections the filter could not classify sit unadjudicated.
+- **The trainer.** M4's orchestration, replay buffer, resource gate and
+  promotion gate are built and tested behind a `Trainer` protocol. What is
+  missing is an implementation.
 
 New code must not violate an [invariant](docs/SPEC.md#6-invariants), and
-`pytest` must pass with and without the optional extras.
+`pytest` must pass with and without the optional extras — CI enforces the
+second in the `text-only` job.
 
 ## Not built here
 
@@ -239,6 +275,19 @@ people's data, and will not make an unfamiliar accent work well out of the box.
 It makes *your* dictation better on *your* machine. Homophones
 ("their"/"there") cannot be fixed by vocabulary at all — that is what the
 post-correction layer is for.
+
+## Reference
+
+| | |
+|---|---|
+| [`docs/SPEC.md`](docs/SPEC.md) | The design record: failure modes, personas, milestones, invariants |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Why each choice was made, and what was measured |
+| [`docs/PRIVACY.md`](docs/PRIVACY.md) | What is stored, and how to check it yourself |
+| [`macos/TESTING.md`](macos/TESTING.md) | The hand-test walkthrough — the only place some things can be verified |
+| [`macos/BUILDING.md`](macos/BUILDING.md) | Building the app from source |
+| [`CHANGELOG.md`](CHANGELOG.md) | What changed, and what is still missing |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Rules that will surprise you |
+| [`SECURITY.md`](SECURITY.md) | Reporting, and what is in scope |
 
 ## License
 

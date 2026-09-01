@@ -1,19 +1,30 @@
 # Homebrew cask for the cochlea macOS app.
 #
-# NOT USABLE YET. The app (M0) is an uncompiled Swift draft and there is no
-# signed, notarized .dmg to install. This file records the shape of the cask so
-# the release path is defined before the artifact exists, not improvised after.
+# NOT USABLE YET, for one remaining reason. This file records the shape of the
+# cask so the release path is defined before the artifact exists rather than
+# improvised after.
 #
-# Blocked on, in order:
-#   1. macos/ compiling and running at all.
-#   2. F22 — an Apple Developer ID signature and notarization. Gatekeeper
-#      blocks an unsigned app that requests Accessibility and Microphone, and a
-#      cask that installs one is a broken install for every user.
-#   3. A tagged release carrying a .dmg asset.
+#   1. [done] macos/ compiles, runs, and has been hand-tested end to end --
+#      hotkey, microphone, transcription, typing at the cursor, streaming,
+#      corrections. See macos/TESTING.md.
+#   2. [BLOCKING] F22 -- an Apple Developer ID signature and notarization.
+#      Gatekeeper blocks an unsigned app, and it is strictest with exactly the
+#      permissions this one needs: Accessibility and Microphone. A cask that
+#      installs an unsigned app is a broken install for every user who did not
+#      compile it themselves, and telling people to run `xattr -dr
+#      com.apple.quarantine` on a downloaded binary teaches a habit that is
+#      dangerous everywhere else.
+#      This needs an Apple Developer Program membership (99 USD/year). It is a
+#      purchase, not a patch.
+#   3. [blocked on 2] A tagged release carrying a signed, notarized .dmg.
 #
-# Once those hold, `brew install --cask cochlea` works from this repository's
-# tap. Acceptance into homebrew-cask (so the tap is unnecessary) additionally
-# requires meeting their notability threshold.
+# Until then, building from source is the honest path and works today: a
+# locally compiled app is not quarantined, so Gatekeeper does not block it.
+#   https://github.com/lexian24/cochlea/blob/main/macos/BUILDING.md
+#
+# Once 2 and 3 hold, `brew install --cask cochlea` works from this
+# repository's tap. Acceptance into homebrew-cask (so the tap is unnecessary)
+# additionally requires meeting their notability threshold.
 cask "cochlea" do
   version "0.0.0"
   sha256 :no_check
@@ -41,12 +52,17 @@ cask "cochlea" do
 
   caveats <<~EOS
     cochlea needs two permissions, and asks for each one the first time you use
-    the feature that needs it — never at launch:
+    the feature that needs it -- never at launch:
 
       Microphone      to hear what you dictate
       Accessibility   to type the result at your cursor
 
-    It does not read the contents of other applications. Nothing leaves your
-    Mac.
+    The Accessibility permission is used to type, never to read. cochlea does
+    not monitor text fields and does not watch your keyboard: the shortcut is
+    registered with the system rather than tapped from the event stream.
+
+    Nothing leaves your Mac, and there is no service that could receive it.
+    What is stored, and how to check:
+      https://github.com/lexian24/cochlea/blob/main/docs/PRIVACY.md
   EOS
 end

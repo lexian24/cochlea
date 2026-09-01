@@ -1,0 +1,47 @@
+name: Idea or change request
+description: Something it should do differently.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project has a written design record, and a lot of the obvious
+        improvements are already there with a reason they were not taken —
+        usually a failure mode they would reintroduce. Checking first makes
+        the conversation much shorter.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is the problem
+      description: |
+        The situation, not the solution. "I dictate long paragraphs and have to
+        wait until the end to see anything" is more useful than "add
+        streaming", because the first one admits several answers.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would do about it
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: spec
+    attributes:
+      label: Design record
+      options:
+        - label: I checked [docs/SPEC.md](../blob/main/docs/SPEC.md) and [docs/DECISIONS.md](../blob/main/docs/DECISIONS.md), and this is not already decided against.
+          required: true
+
+  - type: textarea
+    id: tradeoff
+    attributes:
+      label: What it would cost
+      description: |
+        Optional, but the most useful thing you can write. Every layer here
+        buys accuracy and spends latency, privacy, or the risk of learning the
+        wrong thing. Naming which one this spends is what makes it easy to say
+        yes to.
