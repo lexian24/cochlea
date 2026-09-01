@@ -68,4 +68,11 @@ jobs:
       - name: Test
         working-directory: macos
         shell: bash
-        run: set -o pipefail && swift test 2>&1 | tail -80
+        # The passing-test chatter is what fills `tail`, so a failure scrolls
+        # off and the log says "1 failure" without naming it -- which happened,
+        # and cost a round trip to find a one-line assertion. Dropping the
+        # started/passed lines keeps failures, XCTAssert output and the
+        # summaries inside the window.
+        run: |
+          set -o pipefail
+          swift test 2>&1 | grep -Ev "' (started|passed) ?\(?" | tail -80

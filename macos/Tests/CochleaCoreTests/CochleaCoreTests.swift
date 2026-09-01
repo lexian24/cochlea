@@ -262,7 +262,7 @@ final class CorrectionConfigurationTests: XCTestCase {
         let decoded = try JSONDecoder().decode(
             Configuration.self, from: Data("{\"latencyBudgetMillis\": 250}".utf8))
         XCTAssertEqual(decoded.fixHotkey, .defaultFix)
-        XCTAssertEqual(decoded.replaceWindowSeconds, 120)
+        XCTAssertEqual(decoded.replaceWindowSeconds, 300)
     }
 
     func testTheReplaceWindowIsConfigurable() throws {
