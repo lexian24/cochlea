@@ -65,8 +65,10 @@ enum LexiconImporter {
             case .needsAuthor:
                 return "this file has more than one speaker"
             case .helperMissing:
-                return "the `dictate` helper was not found. cochlea's Homebrew "
-                     + "formula installs it; without it, importing cannot run."
+                return """
+                    the `dictate` helper was not found. cochlea's Homebrew \
+                    formula installs it; without it, importing cannot run.
+                    """
             case .failed(let reason):
                 return reason
             }

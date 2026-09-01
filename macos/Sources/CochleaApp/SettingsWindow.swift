@@ -126,8 +126,11 @@ struct DictationSettings: View {
                     Text("Chinese").tag("zh")
                 }
                 Text(model.configuration.language == nil
-                     ? "Detection costs about 180 ms per utterance and can pick wrong "
-                     + "on a short one. Choose a language if you do not switch."
+                     ? """
+                         Detection costs about 180 ms per utterance and can \
+                         pick wrong on a short one. Choose a language if you \
+                         do not switch.
+                         """
                      : "Fixed. Faster, and it cannot guess wrong.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -141,10 +144,14 @@ struct DictationSettings: View {
                     set: { model.configuration.mode = $0 ? .liveStreaming : .commitOnRelease }
                 ))
                 Text(model.configuration.mode == .liveStreaming
-                     ? "Each phrase appears at your cursor when you pause, "
-                     + "instead of all at once at the end."
-                     : "Nothing is typed until you stop. Slower to appear, but "
-                     + "the whole utterance is transcribed together.")
+                     ? """
+                         Each phrase appears at your cursor when you pause, \
+                         instead of all at once at the end.
+                         """
+                     : """
+                         Nothing is typed until you stop. Slower to appear, \
+                         but the whole utterance is transcribed together.
+                         """)
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } header: {
@@ -158,8 +165,11 @@ struct DictationSettings: View {
                         "Stop listening after \(model.configuration.maximumUtteranceSeconds / 60) min",
                         value: $model.configuration.maximumUtteranceSeconds,
                         in: 60...1800, step: 60)
-                    Text("Without holding a key, the microphone can be left open. "
-                       + "This closes it. Nothing already said is discarded.")
+                    Text("""
+                        Without holding a key, the microphone can be left \
+                        open. This closes it. Nothing already said is \
+                        discarded.
+                        """)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -205,8 +215,10 @@ struct ShortcutSettings: View {
                 if let rejection {
                     Text(rejection).font(.callout).foregroundStyle(.red)
                 }
-                Text("Click a field, then press the combination you want. "
-                   + "It applies immediately.")
+                Text("""
+                    Click a field, then press the combination you want. It \
+                    applies immediately.
+                    """)
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } header: {
@@ -216,12 +228,16 @@ struct ShortcutSettings: View {
             Divider().padding(.vertical, 6)
 
             Section {
-                Text("cochlea registers one system-wide shortcut and sees nothing "
-                   + "else you type. It does not watch your keyboard.")
+                Text("""
+                    cochlea registers one system-wide shortcut and sees \
+                    nothing else you type. It does not watch your keyboard.
+                    """)
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                Text("The Fn key cannot be used: macOS does not make it available "
-                   + "to apps as a shortcut.")
+                Text("""
+                    The Fn key cannot be used: macOS does not make it \
+                    available to apps as a shortcut.
+                    """)
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -289,8 +305,10 @@ struct LearningSettings: View {
                 Text("Nothing yet.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                Text("cochlea does not know your vocabulary until you give it "
-                   + "some. Import a file below to get started.")
+                Text("""
+                    cochlea does not know your vocabulary until you give it \
+                    some. Import a file below to get started.
+                    """)
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
@@ -320,9 +338,11 @@ struct LearningSettings: View {
                     Button("Show the file") { lexicon.revealInFinder() }
                 }
             }
-            Text("A chat export, your notes, anything you have written. "
-               + "cochlea reads it, proposes what it found, and writes "
-               + "nothing until you say yes.")
+            Text("""
+                A chat export, your notes, anything you have written. \
+                cochlea reads it, proposes what it found, and writes nothing \
+                until you say yes.
+                """)
                 .font(.callout)
                 .foregroundStyle(.secondary)
             if let problem = lexicon.problem {
@@ -338,18 +358,23 @@ struct LearningSettings: View {
         Section {
             Text("Not yet. Nothing on this machine trains a model today.")
                 .font(.callout)
-            Text("Biasing above is instant and needs no training: the words you "
-               + "import take effect the next time dictation starts. Training a "
-               + "model on your corrections is a later stage, and it is gated — "
-               + "an adapter that scores worse on held-out data than the one it "
-               + "replaces is never promoted. When it does run it will be while "
-               + "you are idle and on power, and never while you are dictating.")
+            Text("""
+                Biasing above is instant and needs no training: the words \
+                you import take effect the next time dictation starts. \
+                Training a model on your corrections is a later stage, and \
+                it is gated — an adapter that scores worse on held-out data \
+                than the one it replaces is never promoted. When it does run \
+                it will be while you are idle and on power, and never while \
+                you are dictating.
+                """)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            Text("Corrections are being collected now: press "
-               + "\(model.configuration.fixHotkey.displayString) after "
-               + "dictation types something wrong. What is still missing is "
-               + "the part that trains on them.")
+            Text("""
+                Corrections are being collected now: press \
+                \(model.configuration.fixHotkey.displayString) after \
+                dictation types something wrong. What is still missing is \
+                the part that trains on them.
+                """)
                 .font(.callout)
                 .foregroundStyle(.secondary)
             HStack {
@@ -485,10 +510,12 @@ final class LexiconModel: ObservableObject {
                 let result = try await LexiconImporter.run(
                     source: source, author: author, commit: false, home: home)
                 if result.isEmpty {
-                    problem = "Nothing in that file looked like vocabulary worth "
-                            + "learning. Words the recogniser already knows are "
-                            + "skipped on purpose — boosting them can only make "
-                            + "it wrong."
+                    problem = """
+                        Nothing in that file looked like vocabulary worth \
+                        learning. Words the recogniser already knows are \
+                        skipped on purpose — boosting them can only make it \
+                        wrong.
+                        """
                     return
                 }
                 proposal = PendingProposal(source: source, author: author, result: result)
@@ -528,9 +555,11 @@ struct SpeakerPicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Which one is you?").font(.headline)
-            Text("This file is a conversation. cochlea will only learn from the "
-               + "lines you wrote — importing the other side would put someone "
-               + "else's words into your dictation.")
+            Text("""
+                This file is a conversation. cochlea will only learn from \
+                the lines you wrote — importing the other side would put \
+                someone else's words into your dictation.
+                """)
                 .font(.callout)
                 .foregroundStyle(.secondary)
             List(pending.speakers, selection: $selected) { speaker in
@@ -566,8 +595,10 @@ struct ProposalSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Add these to your lexicon?").font(.headline)
-            Text("From \(proposal.result.samples) lines you wrote. Nothing has "
-               + "been saved yet.")
+            Text("""
+                From \(proposal.result.samples) lines you wrote. Nothing has \
+                been saved yet.
+                """)
                 .font(.callout)
                 .foregroundStyle(.secondary)
             List {
@@ -584,8 +615,10 @@ struct ProposalSheet: View {
             }
             .frame(height: 220)
             if !proposal.result.rejected.isEmpty {
-                Text("Skipped, because biasing cannot separate a homophone and "
-                   + "boosting one makes things worse: "
+                Text("""
+                    Skipped, because biasing cannot separate a homophone and \
+                    boosting one makes things worse:
+                    """
                    + proposal.result.rejected.joined(separator: ", "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -622,10 +655,12 @@ struct PrivacySettings: View {
             Section {
                 Toggle("Keep audio features for voice adaptation",
                        isOn: $model.configuration.acousticRetentionEnabled)
-                Text("Off by default, and off is fully functional — the parts that "
-                   + "learn your vocabulary never need audio. Turning this on stores "
-                   + "processed audio features, encrypted, so a future version can "
-                   + "adapt to your voice.")
+                Text("""
+                    Off by default, and off is fully functional — the parts \
+                    that learn your vocabulary never need audio. Turning \
+                    this on stores processed audio features, encrypted, so a \
+                    future version can adapt to your voice.
+                    """)
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } header: {
@@ -635,8 +670,10 @@ struct PrivacySettings: View {
             Divider().padding(.vertical, 6)
 
             Section {
-                Text("Nothing leaves this Mac. There is no account, no server and "
-                   + "no telemetry. Speech recognition runs locally.")
+                Text("""
+                    Nothing leaves this Mac. There is no account, no server \
+                    and no telemetry. Speech recognition runs locally.
+                    """)
                     .font(.callout)
                 Text("Everything cochlea stores is in ~/.cochlea.")
                     .font(.callout)

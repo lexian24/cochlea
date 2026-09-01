@@ -8,7 +8,7 @@ already refuted there.
 ## Layout
 
 - `src/cochlea/` — the adaptation engine and the ASR sidecar, in Python.
-  Tested (164 tests).
+  Tested (221 tests).
 - `macos/` — the M0 app, in Swift. Builds in CI; the ASR path has been run,
   the capture path has not.
 - `docs/DECISIONS.md` — decision records. Add one rather than silently
@@ -93,6 +93,32 @@ separately, because F19 makes them separate acceptance numbers, and prints
 whether the warm median meets the 1s budget. Numbers from one M2 are in
 DECISIONS D6 — `large-v3-turbo` misses the budget there and `whisper-small`
 meets it, which is measured on one machine and not yet a reason to change D1.
+
+## The CI toolchain is two versions behind this machine
+
+`swift build` here is Swift 6.2; the `macos-app` job builds on `macos-14` with
+**Swift 5.10**, matching `Package.swift`'s `swift-tools-version: 5.9`. That is
+deliberate — a Homebrew user on an older macOS gets the old compiler — but it
+means a SwiftUI change that builds cleanly here can still fail CI, and the
+failure is always the same one:
+
+```
+error: the compiler is unable to type-check this expression in reasonable time
+```
+
+The cause is almost always a **`"..." + "..." + "..."` chain inside a view
+builder**. `+` has many overloads and the 5.10 solver considers them
+combinatorially with everything else in the body. Two rules avoid it:
+
+- Long UI strings are one `"""` literal with `\` line continuations, never a
+  `+` chain. Outside a view builder, where there is a declared return type, a
+  chain is fine.
+- A `body` that grows past a screen gets split into `@ViewBuilder` computed
+  properties.
+
+Neither `-warn-long-expression-type-checking` nor `-solver-scope-threshold`
+reproduces it on 6.2 — both report nothing on a body 5.10 refuses. There is no
+local check; the rules are the check.
 
 ## Conventions
 

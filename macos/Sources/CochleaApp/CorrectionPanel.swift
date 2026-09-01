@@ -136,14 +136,18 @@ struct CorrectionView: View {
     /// user's document and there is no way to preview that.
     private var explanation: String {
         guard model.canReplace else {
-            return "Too long ago to take the text back safely — cochlea cannot "
-                 + "see your document, so it cannot tell whether your cursor "
-                 + "has moved. It will remember the correction; fix the text "
-                 + "yourself."
+            return """
+                Too long ago to take the text back safely — cochlea cannot \
+                see your document, so it cannot tell whether your cursor has \
+                moved. It will remember the correction; fix the text \
+                yourself.
+                """
         }
-        return "\"Fix it\" deletes the last \(model.injectedCount) characters at "
-             + "your cursor and types this instead. If you have moved the "
-             + "cursor since, choose \"Just remember it\"."
+        return """
+            \"Fix it\" deletes the last \(model.injectedCount) characters at \
+            your cursor and types this instead. If you have moved the cursor \
+            since, choose \"Just remember it\".
+            """
     }
 }
 
@@ -215,8 +219,10 @@ enum CorrectionRecorder {
         var description: String {
             switch self {
             case .helperMissing:
-                return "the `dictate` helper was not found, so the correction "
-                     + "could not be saved. The text was still fixed."
+                return """
+                    the `dictate` helper was not found, so the correction \
+                    could not be saved. The text was still fixed.
+                    """
             case .failed(let reason):
                 return reason
             }

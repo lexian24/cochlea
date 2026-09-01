@@ -152,8 +152,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                  + "(\(verdict.failed_signals.joined(separator: ", ")))"
         }
         if !verdict.isTrainable {
-            return "saved, but read as a rewrite rather than a mishearing, so "
-                 + "it will not be trained on"
+            return """
+                saved, but read as a rewrite rather than a mishearing, so it \
+                will not be trained on
+                """
         }
         return "correction saved"
     }
