@@ -129,13 +129,80 @@ source and the formula's version assertion cannot drift from it.
 
 ## Still blocking a real product release
 
-- **F22, signing and notarization.** An unsigned app requesting Accessibility
-  and Microphone access is blocked by Gatekeeper. Required before M0 ships.
+- **F22, signing and notarization.** The one real blocker. See below.
 - **F23, model licensing.** Whisper is MIT, which is why it was chosen, but
   `LICENSES-MODELS.md` still has to exist before anything downloads weights.
-- **A proven capture path.** ASR works (D5), but the hotkey, microphone and
-  text injector have never been exercised by a person. See
-  [macos/BUILDING.md](../macos/BUILDING.md).
 
-Checksum pinning, which stood here as a blocker under D2, is done
-([D4](DECISIONS.md)).
+Two things that stood here as blockers are done: checksum pinning under D2
+([D4](DECISIONS.md)), and the capture path, which has now been exercised by a
+person end to end ([macos/TESTING.md](../macos/TESTING.md)).
+
+## F22 — what signing actually takes
+
+There is no way around it, and the alternatives were checked rather than
+assumed. Comparable projects pay: [Vorssaint](https://github.com/vorssaintapp/vorssaint-utils),
+a menu bar app in the same shape and needing the same permissions, ships
+Developer ID–signed and notarized builds and says so in its README.
+
+**Ad-hoc signing is not a substitute.** `codesign --sign -` is what
+`Tools/setup-testing.sh` does, and it works *only* because a locally compiled
+app is never quarantined. The moment a `.dmg` is downloaded, the quarantine
+attribute is set and Gatekeeper refuses it regardless of ad-hoc signature.
+Telling users to run `xattr -dr com.apple.quarantine` teaches a habit that is
+dangerous everywhere else, so the cask does not ship until this is real.
+
+**It is worth more than getting past Gatekeeper.** A stable Developer ID also
+means **TCC grants survive updates**. Accessibility and Microphone permissions
+are keyed to the signing identity; an ad-hoc build is keyed by path and
+re-prompts unpredictably across rebuilds, which is why
+[macos/TESTING.md](../macos/TESTING.md) documents `tccutil reset` at all. A
+signed app is granted once.
+
+### The steps, for the day the membership exists
+
+1. **Enrol** in the Apple Developer Program (99 USD/year).
+2. **Create a Developer ID Application certificate** in the developer portal,
+   download it, and add it to the login keychain. `security find-identity -v
+   -p codesigning` should then list it.
+3. **Create an app-specific password** for notarization at appleid.apple.com,
+   and store credentials once:
+
+   ```sh
+   xcrun notarytool store-credentials cochlea-notary \
+     --apple-id "you@example.com" --team-id "TEAMID" --password "app-specific-password"
+   ```
+
+4. **Sign with a hardened runtime**, which notarization requires. Note that
+   `--options runtime` is not optional and that the entitlements file must
+   permit nothing cochlea does not use:
+
+   ```sh
+   codesign --force --deep --options runtime --timestamp \
+     --sign "Developer ID Application: Your Name (TEAMID)" build/cochlea.app
+   ```
+
+5. **Notarize and staple**, so the check works offline:
+
+   ```sh
+   hdiutil create -volname cochlea -srcfolder build/cochlea.app -ov -format UDZO cochlea.dmg
+   xcrun notarytool submit cochlea.dmg --keychain-profile cochlea-notary --wait
+   xcrun stapler staple cochlea.dmg
+   spctl -a -vvv -t install cochlea.dmg      # must say "accepted, Developer ID"
+   ```
+
+6. **Attach the `.dmg` to the release**, then set `version`, `sha256` and the
+   URL in [`Casks/cochlea.rb`](../Casks/cochlea.rb) and drop `sha256 :no_check`.
+
+7. In CI, the certificate goes in as a base64 secret and is imported into a
+   temporary keychain. Do not sign from a developer's laptop for a public
+   release: the artifact should be reproducible from the tag.
+
+### One trap, before there is a signed build
+
+The development build and any future signed build currently share the bundle
+identifier `com.cochlea.app`. Because TCC keys grants by identity, a machine
+that has granted Accessibility to a locally built cochlea will behave
+confusingly when a signed one arrives. Giving the dev build its own identifier
+— as Vorssaint does with a separate `--dev` variant — avoids that, at the cost
+of re-granting permissions once. Worth doing **before** the first signed
+release, not after.

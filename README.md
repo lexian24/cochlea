@@ -55,20 +55,31 @@ pip install 'cochlea[asr]'      # mlx-whisper
 dictate asr-check my.wav --model ~/.cochlea/models/whisper-small
 ```
 
-The menu bar app is not packaged yet: it needs signing and notarization (F22)
-before `brew install --cask` is honest.
+The menu bar app is **not** packaged yet: it needs signing and notarization
+(F22) before `brew install --cask` would be honest — Gatekeeper blocks an
+unsigned download, and it is strictest with exactly the two permissions
+cochlea needs. Build it from source in the meantime, which works today
+because a locally compiled app is not quarantined:
+
+```sh
+Tools/setup-testing.sh          # builds, signs ad-hoc, unquarantines
+./build/cochlea.app/Contents/MacOS/cochlea
+```
+
+[`macos/BUILDING.md`](macos/BUILDING.md) has the details.
 
 <details>
 <summary>Other ways</summary>
 
 ```sh
-# one-shot, no tap
-brew install --formula https://raw.githubusercontent.com/lexian24/cochlea/main/Formula/cochlea.rb
-
 # from source
 git clone https://github.com/lexian24/cochlea && cd cochlea
-pip install -e ".[dev,zh,acoustic]"
+pip install -e ".[dev,zh,acoustic,asr]"
 ```
+
+Installing a formula straight from a URL no longer works — Homebrew requires
+formulae to live in a tap, and rejects both a URL and a local path. The tap
+above is the supported route.
 
 `brew install --cask cochlea` will install the menu bar app once there is one.
 [`Casks/cochlea.rb`](Casks/cochlea.rb) records what that needs. See
@@ -286,8 +297,11 @@ post-correction layer is for.
 | [`macos/TESTING.md`](macos/TESTING.md) | The hand-test walkthrough — the only place some things can be verified |
 | [`macos/BUILDING.md`](macos/BUILDING.md) | Building the app from source |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed, and what is still missing |
+| [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | When it does something you did not expect |
+| [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md) | What it asks for, when, and what it does not |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Rules that will surprise you |
 | [`SECURITY.md`](SECURITY.md) | Reporting, and what is in scope |
+| [`SUPPORT.md`](SUPPORT.md) | Where to take a problem |
 
 ## License
 

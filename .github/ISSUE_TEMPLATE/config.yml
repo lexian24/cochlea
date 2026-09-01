@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Troubleshooting — it does something unexpected
+    url: https://github.com/lexian24/cochlea/blob/main/docs/TROUBLESHOOTING.md
+    about: Most of what looks broken is deliberate, and the rest has a specific cause. Check here first.
   - name: Design question — why is it built this way?
     url: https://github.com/lexian24/cochlea/blob/main/docs/SPEC.md
     about: The spec records the failure modes the design has to survive. Most "why not just…" questions are answered there with a reason.
