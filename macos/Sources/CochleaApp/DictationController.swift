@@ -201,6 +201,16 @@ public final class DictationController {
         // an utterance during the hold — so the microphone was never closed
         // and stayed open until the app quit.
         guard isCapturing else { return }
+
+        // Keep listening for one buffer period. The tap delivers 100 ms at a
+        // time and `stop()` discards a partially filled buffer, so releasing
+        // the key used to cut the last 85 ms of speech. `isCapturing` stays
+        // true across the wait on purpose: `accept(frame:)` drops frames when
+        // it is false, which would throw away the very buffer being waited
+        // for. A press during the drain is ignored, which is correct — the
+        // previous utterance has not been handed over yet.
+        try? await Task.sleep(nanoseconds: AudioCapture.drainMillis * 1_000_000)
+
         isCapturing = false
         capture.stop()
         guard let samples = segmenter.finish() else {

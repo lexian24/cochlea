@@ -109,6 +109,14 @@ Two things that test found, both fixed:
   floor with speech and loses the whole utterance, which is worse than the bug
   being fixed. The hangover went from 0.6 s to 1.5 s, since 0.6 s is shorter
   than a person pausing to think.
+- **The last 85 ms of every utterance was being thrown away.** Two presses
+  reported byte-identical sample counts, which should be impossible for
+  different hold durations. Cause: `installTap`'s `bufferSize` is a hint the
+  engine ignores — it delivers 100 ms buffers whatever you ask for (measured at
+  512, 1024 and 4096, all identical) — so capture is quantised to 100 ms and
+  `stop()` discards the partially filled buffer. Two holds in the same bucket
+  therefore produce the same count. Releasing the key now waits one buffer
+  period first: a 2.00 s hold went from 1.94 s of audio to 2.03 s.
 - **Connecting AirPods stopped dictation completely (T6).** `AVAudioEngine`
   binds to the input device it was built against, and nothing observed
   `AVAudioEngineConfigurationChange`, so the engine held a reference to
@@ -200,7 +208,10 @@ and it is the whole reason this test exists.
 moment.
 
 **Do:** dictate once with the built-in microphone. Connect AirPods (or any USB
-interface). Dictate again without relaunching.
+interface), **and select them as the input device** in System Settings → Sound
+→ Input — connecting them only changes *output*, and the bug needs the input
+device to change. Dictate again without relaunching, then disconnect and
+dictate a third time.
 
 **Expect:** the second utterance transcribes.
 

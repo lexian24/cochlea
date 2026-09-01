@@ -25,6 +25,17 @@ public final class AudioCapture {
 
     public static let targetSampleRate: Double = 16_000
 
+    /// How long to keep listening after the user lets go.
+    ///
+    /// The tap hands over 100 ms buffers and `stop()` throws away whichever
+    /// one is partially filled, so the last fraction of a second of speech was
+    /// being discarded — measured at 85 ms, which is comfortably a final
+    /// consonant. Waiting one buffer period recovers it: a 2.00 s hold went
+    /// from 1.94 s of audio to 2.03 s. It costs 120 ms against a 1000 ms
+    /// budget currently being met in about 450 ms, which is a good trade for
+    /// not clipping the end of what someone said.
+    public static let drainMillis: UInt64 = 120
+
     /// Replaced, not reused, whenever the hardware changes underneath it.
     private var engine = AVAudioEngine()
     private var converter: AVAudioConverter?
@@ -154,6 +165,10 @@ public final class AudioCapture {
         self.converter = converter
         let afterConverter = elapsed()
 
+        // The size is a hint the engine ignores: it delivers 4800 frames at
+        // 48 kHz — 100 ms — whatever is asked for here (measured with 512,
+        // 1024 and 4096, all identical). That period is why `stop()` discards
+        // a partially filled buffer, and why `Segmenter.drainMillis` exists.
         input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
             guard let self, let converted = self.convert(buffer) else { return }
             self.onFrame?(converted)
