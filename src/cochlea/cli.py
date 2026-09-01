@@ -9,6 +9,7 @@ milestone rather than failing obscurely.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -74,6 +75,18 @@ def cmd_import(args) -> int:
     try:
         samples = list(imp.extract(args.source, **kwargs))
     except ValueError as e:
+        if args.json:
+            # The speaker list travels with the error, not just in the
+            # message. A GUI that has to regex an English sentence to find out
+            # who is in the file will break the first time the sentence is
+            # reworded.
+            payload = {"error": str(e)}
+            if speakers := getattr(e, "speakers", None):
+                payload["speakers"] = [{"name": n, "lines": c} for n, c in speakers]
+            if candidates := getattr(e, "candidates", None):
+                payload["speakers"] = [{"name": n, "lines": c} for n, c in candidates]
+            print(json.dumps(payload))
+            return 1
         print(f"import failed: {e}", file=sys.stderr)
         return 1
 
@@ -98,9 +111,28 @@ def cmd_import(args) -> int:
         except HomophoneRejected:
             rejected.append(entry)
 
-    print(f"imported {len(samples)} samples from {args.importer}:{args.source}")
     words = [(t, c) for t, c in added if " " not in t]
     multi = [(t, c) for t, c in added if " " in t]
+    variants = [{"a": a, "b": b, "count_a": ca, "count_b": cb}
+                for a, b, ca, cb in detect_variants(texts)[:5]]
+
+    if args.json:
+        if args.commit:
+            lexicon.save(lexicon_path())
+        print(json.dumps({
+            "samples": len(samples),
+            "source": f"{args.importer}:{args.source}",
+            "terms": [{"term": t, "count": c} for t, c in words],
+            "phrases": [{"term": t, "count": c} for t, c in multi],
+            "rejected": rejected,
+            "variants": variants,
+            "committed": bool(args.commit),
+            "entries": len(lexicon.entries),
+            "path": str(lexicon_path()),
+        }))
+        return 0
+
+    print(f"imported {len(samples)} samples from {args.importer}:{args.source}")
     print(f"  {len(words)} terms, {len(multi)} phrases")
     for label, group in (("term", words), ("phrase", multi)):
         for entry, count in group[:20]:
@@ -108,9 +140,10 @@ def cmd_import(args) -> int:
             print(f"    {mark} {label:6} {entry:28} x{count}")
     if rejected:
         print(f"  {len(rejected)} rejected as homophones (F5): {', '.join(rejected)}")
-    for a, b, ca, cb in detect_variants(texts)[:5]:
-        print(f"  orthography variant (F6): {a!r} x{ca} vs {b!r} x{cb} "
-              f"-- run `dictate lexicon canonicalize {a} {b}` to pick one")
+    for v in variants:
+        print(f"  orthography variant (F6): {v['a']!r} x{v['count_a']} vs "
+              f"{v['b']!r} x{v['count_b']} -- run "
+              f"`dictate lexicon canonicalize {v['a']} {v['b']}` to pick one")
 
     if not args.commit:
         print("\nNothing was written. Re-run with --commit to keep this.")
@@ -482,6 +515,8 @@ def main(argv: list[str] | None = None) -> int:
                      help="single terms only")
     imp.add_argument("--commit", action="store_true",
                      help="write to the lexicon; without it this only proposes")
+    imp.add_argument("--json", action="store_true",
+                     help="machine-readable output, for the app")
     imp.set_defaults(func=cmd_import)
 
     lx = sub.add_parser("lexicon", help="read and edit what dictation is biased towards")

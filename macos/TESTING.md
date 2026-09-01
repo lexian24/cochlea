@@ -93,8 +93,8 @@ open questions.
 | **T5** VAD / mic closes | **Passes after a fix.** Silence now ends the utterance mid-hold and the text is typed before release. See below. |
 | **T6** device change | **Passes after a fix.** Switching the input device to AirPods mid-session is detected, the graph is rebuilt on the next press, and dictation continues. Previously it hung the app. |
 
-Every core test above now passes on this machine. **T8, T9 and T10 have never
-been run** — T9 and T10 cover behaviour that did not exist when the first
+Every core test above now passes on this machine. **T8 through T11 have never
+been run** — T9, T10 and T11 cover behaviour that did not exist when the first
 hand-test happened.
 
 Two observations that are not bugs but are worth knowing:
@@ -321,6 +321,50 @@ Also new, also never hand-tested.
 6. **Collide.** Bind it to something macOS already owns (`⌘Space`). It should
    fail with a readable reason and fall back to what was working — not leave
    you with no way to dictate.
+
+---
+
+## T11 — Teaching it your vocabulary, from the menu bar
+
+The path the CLI already proves, done entirely by clicking. Never hand-tested.
+
+Make a file to import first — a chat export, or just paste a few of your own
+messages into a text file. Something with words you actually use that a
+recogniser would get wrong.
+
+1. Menu bar icon → **Settings… → Learning**. With nothing imported it should
+   say so plainly rather than showing an empty table.
+2. **Import from a file…** and choose your file.
+3. **If it is a conversation**, cochlea should stop and ask *which speaker is
+   you*, listing everyone it found with line counts. It must not import
+   without an answer — learning the other person's vocabulary is the failure
+   this question exists to prevent.
+4. A sheet should list what it found: phrases separated from words, each with
+   how often you wrote it. **Nothing has been saved at this point.** Cancel
+   here and check the Learning tab is still empty.
+5. Import again and press **Add**. The list should fill.
+
+Then check it reached the recogniser:
+
+```sh
+dictate lexicon                      # what the app just wrote
+```
+
+Quit and relaunch the app, dictate a sentence containing one of the imported
+words, and see whether it comes out right. The helper loads the lexicon at
+startup, so a relaunch is required — if that turns out to be annoying in
+practice, say so, because it is fixable.
+
+Worth reporting either way:
+
+- **Did it propose junk?** Ordinary words the recogniser already knows are
+  supposed to be filtered out (F25), and every one that slips through is an
+  entry that can only make things worse. Tell me what it offered that it
+  should not have.
+- **Did it miss something obvious** — a name, a tool, a piece of jargon you
+  use constantly? That is the more interesting failure.
+- **The minus button** next to an entry should remove it, and the change
+  should survive a relaunch.
 
 ---
 

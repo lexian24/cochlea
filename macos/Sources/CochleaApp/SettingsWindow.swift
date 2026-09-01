@@ -225,34 +225,340 @@ struct ShortcutSettings: View {
 
 // MARK: - Learning
 
+/// What cochlea knows, how it got there, and what it still cannot do.
+///
+/// The tab answers three questions in the order a user actually asks them:
+/// what has it learned, how do I teach it, and when does it train. The third
+/// answer is "not yet", and saying so plainly beats a screen that implies
+/// otherwise by having controls for it.
 struct LearningSettings: View {
     @ObservedObject var model: SettingsModel
+    @StateObject private var lexicon: LexiconModel
+
+    init(model: SettingsModel) {
+        self.model = model
+        _lexicon = StateObject(wrappedValue: LexiconModel(home: model.configuration.home))
+    }
 
     var body: some View {
         Form {
             Section {
-                Text("Not built yet.").font(.headline)
-                Text("cochlea is designed to learn your words from corrections you "
-                   + "make, and from text you import. The storage, the filter that "
-                   + "tells a correction from a rewrite, and the check that stops a "
-                   + "bad model shipping are all written and tested. What is missing "
-                   + "is the part that trains, and the screens for it.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Text("Until then the command line does the parts that work:")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Text("dictate import gitlog ~/your/repo\ndictate stats")
-                    .font(.system(.callout, design: .monospaced))
-                    .textSelection(.enabled)
-                    .padding(8)
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(6)
+                if lexicon.entries.isEmpty {
+                    Text("Nothing yet.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Text("cochlea does not know your vocabulary until you give it "
+                       + "some. Import a file below, or make corrections once "
+                       + "correction capture exists.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(summary).font(.callout).foregroundStyle(.secondary)
+                    List {
+                        ForEach(lexicon.entries) { entry in
+                            HStack(spacing: 8) {
+                                Image(systemName: entry.isPhrase
+                                      ? "text.quote" : "textformat.abc")
+                                    .foregroundStyle(.secondary)
+                                    .help(entry.isPhrase
+                                          ? "A phrase. Only boosted in context."
+                                          : "A single word.")
+                                Text(entry.term)
+                                Spacer()
+                                Text(entry.hits == 0
+                                     ? "not used yet"
+                                     : "used \(entry.hits)x")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Button {
+                                    lexicon.remove(entry.term)
+                                } label: {
+                                    Image(systemName: "minus.circle")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Stop biasing towards this")
+                            }
+                        }
+                    }
+                    .frame(minHeight: 120, maxHeight: 180)
+                    Text("Changes take effect the next time the ASR helper starts.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } header: {
-                Text("Learning from your corrections").font(.headline)
+                Text("Words cochlea listens for").font(.headline)
+            }
+
+            Divider().padding(.vertical, 6)
+
+            Section {
+                HStack {
+                    Button("Import from a file…") { lexicon.chooseFile() }
+                        .disabled(lexicon.isRunning)
+                    if lexicon.isRunning { ProgressView().controlSize(.small) }
+                    Spacer()
+                    if !lexicon.entries.isEmpty {
+                        Button("Show the file") { lexicon.revealInFinder() }
+                    }
+                }
+                Text("A chat export, your notes, anything you have written. "
+                   + "cochlea reads it, proposes what it found, and writes "
+                   + "nothing until you say yes.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                if let problem = lexicon.problem {
+                    Text(problem).font(.callout).foregroundStyle(.red)
+                }
+            } header: {
+                Text("Teach it your vocabulary").font(.headline)
+            }
+
+            Divider().padding(.vertical, 6)
+
+            Section {
+                Text("Not yet. Nothing on this machine trains a model today.")
+                    .font(.callout)
+                Text("Biasing above is instant and needs no training: the words "
+                   + "you import take effect the next time dictation starts. "
+                   + "Training a model on your corrections is a later stage, "
+                   + "and it is gated — an adapter that scores worse on held-out "
+                   + "data than the one it replaces is never promoted. When it "
+                   + "does run it will be while you are idle and on power, and "
+                   + "never while you are dictating.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text("What is missing first is a way to capture a correction, "
+                   + "which needs the app, not the engine.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("When does it train?").font(.headline)
             }
         }
         .formStyle(.grouped)
+        .onAppear { lexicon.reload() }
+        .sheet(item: $lexicon.pendingSpeakers) { pending in
+            SpeakerPicker(pending: pending) { chosen in
+                lexicon.propose(source: pending.source, author: chosen)
+            } cancel: {
+                lexicon.pendingSpeakers = nil
+            }
+        }
+        .sheet(item: $lexicon.proposal) { proposal in
+            ProposalSheet(proposal: proposal) {
+                lexicon.commit()
+            } cancel: {
+                lexicon.proposal = nil
+            }
+        }
+    }
+
+    private var summary: String {
+        let total = lexicon.entries.count
+        let phrases = lexicon.entries.filter(\.isPhrase).count
+        let used = lexicon.entries.filter { $0.hits > 0 }.count
+        var parts = ["\(total) entries"]
+        if phrases > 0 { parts.append("\(phrases) of them phrases") }
+        parts.append(used == 0 ? "none used yet" : "\(used) used so far")
+        return parts.joined(separator: ", ") + "."
+    }
+}
+
+/// Reads the lexicon and drives `dictate import` for the settings window.
+@MainActor
+final class LexiconModel: ObservableObject {
+
+    @Published var entries: [LexiconFile.Entry] = []
+    @Published var problem: String?
+    @Published var isRunning = false
+    @Published var proposal: PendingProposal?
+    @Published var pendingSpeakers: PendingSpeakers?
+
+    /// A proposal waiting for the user to accept it. Carries the source and
+    /// author so accepting can re-run the same import with `--commit` rather
+    /// than trusting the app to have kept the terms straight.
+    struct PendingProposal: Identifiable {
+        let id = UUID()
+        let source: URL
+        let author: String?
+        let result: LexiconImporter.Proposal
+    }
+
+    struct PendingSpeakers: Identifiable {
+        let id = UUID()
+        let source: URL
+        let speakers: [LexiconImporter.Speaker]
+    }
+
+    private let home: URL
+
+    init(home: URL) { self.home = home }
+
+    private var url: URL { home.appendingPathComponent("lexicon.json") }
+
+    func reload() {
+        entries = LexiconFile.load(from: url).sorted
+    }
+
+    func remove(_ term: String) {
+        var file = LexiconFile.load(from: url)
+        file.remove(term)
+        do {
+            try file.save(to: url)
+            entries = file.sorted
+        } catch {
+            problem = "Could not update the lexicon: \(error.localizedDescription)"
+        }
+    }
+
+    func revealInFinder() {
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    func chooseFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a file to learn from"
+        panel.message = "A chat export, your notes, anything you have written."
+        panel.allowedContentTypes = [.plainText, .text]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let source = panel.url else { return }
+        propose(source: source, author: nil)
+    }
+
+    func propose(source: URL, author: String?) {
+        pendingSpeakers = nil
+        problem = nil
+        isRunning = true
+        Task {
+            defer { isRunning = false }
+            do {
+                let result = try await LexiconImporter.run(
+                    source: source, author: author, commit: false, home: home)
+                if result.isEmpty {
+                    problem = "Nothing in that file looked like vocabulary worth "
+                            + "learning. Words the recogniser already knows are "
+                            + "skipped on purpose — boosting them can only make "
+                            + "it wrong."
+                    return
+                }
+                proposal = PendingProposal(source: source, author: author, result: result)
+            } catch LexiconImporter.ImportError.needsAuthor(let speakers) {
+                pendingSpeakers = PendingSpeakers(source: source, speakers: speakers)
+            } catch {
+                problem = String(describing: error)
+            }
+        }
+    }
+
+    func commit() {
+        guard let pending = proposal else { return }
+        proposal = nil
+        isRunning = true
+        Task {
+            defer { isRunning = false }
+            do {
+                _ = try await LexiconImporter.run(
+                    source: pending.source, author: pending.author,
+                    commit: true, home: home)
+                reload()
+            } catch {
+                problem = String(describing: error)
+            }
+        }
+    }
+}
+
+/// "Which one of these is you?" — invariant 3, as a question.
+struct SpeakerPicker: View {
+    let pending: LexiconModel.PendingSpeakers
+    let choose: (String) -> Void
+    let cancel: () -> Void
+    @State private var selected: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Which one is you?").font(.headline)
+            Text("This file is a conversation. cochlea will only learn from the "
+               + "lines you wrote — importing the other side would put someone "
+               + "else's words into your dictation.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            List(pending.speakers, selection: $selected) { speaker in
+                HStack {
+                    Text(speaker.name)
+                    Spacer()
+                    Text("\(speaker.lines) lines")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .tag(speaker.name)
+            }
+            .frame(height: 150)
+            HStack {
+                Button("Cancel", role: .cancel) { cancel() }
+                Spacer()
+                Button("Continue") { if let selected { choose(selected) } }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(selected == nil)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+    }
+}
+
+/// What an import would add, before it adds it.
+struct ProposalSheet: View {
+    let proposal: LexiconModel.PendingProposal
+    let accept: () -> Void
+    let cancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Add these to your lexicon?").font(.headline)
+            Text("From \(proposal.result.samples) lines you wrote. Nothing has "
+               + "been saved yet.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            List {
+                if !proposal.result.phrases.isEmpty {
+                    Section("Phrases — boosted only in context") {
+                        ForEach(proposal.result.phrases) { row(for: $0) }
+                    }
+                }
+                if !proposal.result.terms.isEmpty {
+                    Section("Words") {
+                        ForEach(proposal.result.terms) { row(for: $0) }
+                    }
+                }
+            }
+            .frame(height: 220)
+            if !proposal.result.rejected.isEmpty {
+                Text("Skipped, because biasing cannot separate a homophone and "
+                   + "boosting one makes things worse: "
+                   + proposal.result.rejected.joined(separator: ", "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            HStack {
+                Button("Cancel", role: .cancel) { cancel() }
+                Spacer()
+                Button("Add") { accept() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+    }
+
+    private func row(for candidate: LexiconImporter.Proposal.Candidate) -> some View {
+        HStack {
+            Text(candidate.term)
+            Spacer()
+            Text("you wrote it \(candidate.count)x")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
