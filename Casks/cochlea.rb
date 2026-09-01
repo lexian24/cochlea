@@ -34,7 +34,10 @@ cask "cochlea" do
   desc "Local-only personalized dictation that adapts to one person"
   homepage "https://github.com/lexian24/cochlea"
 
-  depends_on macos: ">= :sonoma"
+  # Symbol form, not ">= :sonoma": the string comparison is deprecated and
+  # warns on every brew command that touches this tap. Sonoma is 14.0, which
+  # is what the app's Info.plist asks for.
+  depends_on macos: :sonoma
   depends_on arch: :arm64
 
   app "cochlea.app"
