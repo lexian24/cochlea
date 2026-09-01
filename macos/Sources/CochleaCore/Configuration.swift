@@ -66,7 +66,15 @@ public struct Configuration: Codable, Sendable {
     /// told when it fires rather than finding a silently truncated transcript.
     public var maximumUtteranceSeconds: Int = 300
 
-    public var mode: Mode = .commitOnRelease
+    /// Defaults to streaming.
+    ///
+    /// The thing it gives up is the M4 post-correction pass, which does not
+    /// exist yet, so today the choice costs nothing and removes a wait that
+    /// grows with how much you say — under latch activation that is minutes of
+    /// staring at an empty cursor. Revisit when M4 lands and the trade becomes
+    /// real; until then, defaulting to the mode with no downside is the honest
+    /// setting. See DECISIONS D9.
+    public var mode: Mode = .liveStreaming
     /// Sourced from the catalog rather than written out, because a literal
     /// here drifted: it read "whisper-turbo", which matches no descriptor, so
     /// `ModelCatalog.descriptor(for:)` would have returned nil the moment

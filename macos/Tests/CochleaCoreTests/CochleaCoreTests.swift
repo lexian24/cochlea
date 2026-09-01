@@ -58,7 +58,7 @@ final class ConfigurationTests: XCTestCase {
         let decoded = try JSONDecoder().decode(
             Configuration.self, from: Data("{\"latencyBudgetMillis\": 250}".utf8))
         XCTAssertEqual(decoded.latencyBudgetMillis, 250)
-        XCTAssertEqual(decoded.mode, .commitOnRelease)
+        XCTAssertEqual(decoded.mode, .liveStreaming)
         XCTAssertEqual(decoded.modelIdentifier, ModelCatalog.default.identifier)
         XCTAssertFalse(decoded.acousticRetentionEnabled)   // invariant 7
     }

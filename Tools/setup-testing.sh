@@ -36,20 +36,26 @@ else
   say "        the app downloads it on first run, or see macos/TESTING.md"
 fi
 
+# One key out of the config, or "default" when it is not pinned there.
+cfg() {
+  python3 -c 'import json,os,sys; print(json.load(open(os.path.expanduser("~/.cochlea/config.json"))).get(sys.argv[1],"default"))' "$1" 2>/dev/null || echo '?'
+}
+
 # 3. Point the app at that model. whisper-small meets M0's latency budget on
 #    an 8 GB M2; large-v3-turbo does not (D6). Written only if absent, so an
 #    edit of yours survives a re-run.
 mkdir -p "$HOME/.cochlea"
 if [ -f "$HOME/.cochlea/config.json" ]; then
-  good "config exists (model: $(python3 -c 'import json,os,sys; print(json.load(open(os.path.expanduser("~/.cochlea/config.json"))).get("modelIdentifier","?"))' 2>/dev/null || echo '?'))"
+  good "config exists (model: $(cfg modelIdentifier), output: $(cfg mode))"
 else
+  # Only what this script has an opinion about. Every other key takes the
+  # app's default, which is the point of them all being optional -- pinning a
+  # default here freezes it, so a later change to the shipping default never
+  # reaches anyone who has run this once. That is exactly what happened to
+  # "mode". "home" is absent on purpose: it is the field that made a copied
+  # config brick the app at launch.
   cat > "$HOME/.cochlea/config.json" <<JSON
 {
-  "acousticRetentionEnabled": false,
-  "home": "file://$HOME/.cochlea/",
-  "keepModelResident": true,
-  "latencyBudgetMillis": 1000,
-  "mode": "commitOnRelease",
   "modelIdentifier": "$MODEL"
 }
 JSON
@@ -79,6 +85,10 @@ Ready. Start the app in this terminal so you can watch what it does:
 
     ./build/cochlea.app/Contents/MacOS/cochlea
 
-Then hold Control-Option-D, say a sentence, and release. Each test and what
-to look for is in macos/TESTING.md. Ctrl-C here quits the app.
+Hold Control-Option-D and speak, or tap it once and it keeps listening until
+you tap again. The menu bar icon opens Settings, where the shortcut and
+everything else can be changed while the app runs.
+
+Each test and what to look for is in macos/TESTING.md. Ctrl-C here quits the
+app.
 NEXT

@@ -452,3 +452,68 @@ against a recording saying "model"). That is a handful of synthesised samples,
 not a corpus, so it is evidence that the working point is around 6 — not
 evidence that F2 is solved. The decay, negative-signal and expiry mitigations
 F2 specifies are still required.
+
+---
+
+## D9 — Streaming commits at pauses, and it is the default
+
+**Date.** 2026-09-01. **Status.** Accepted, with a scheduled revisit at M4.
+
+**Context.** Latch activation (D7) made long dictation practical and, in doing
+so, made the wait unbearable: hold-to-talk bounded an utterance at the length of
+a held chord, but a latched session is minutes long and nothing appeared at the
+cursor until it ended. "Can we stream the output rather than waiting for the
+whole audio to stop" is the direct consequence of shipping D7.
+
+**What streaming means here.** The commit unit is a segment, not a word. The
+detector already ended an utterance on trailing silence mid-hold; streaming
+reuses that mechanism at a shorter pause (0.7 s rather than the 1.5 s hangover)
+and, instead of ending the session, types that piece and keeps listening.
+
+Word-level partial hypotheses were not built and are not planned for this
+layer. They require revising text that is already on screen, and F18 rules that
+out: the only way to revise typed text is backspacing, which breaks terminals
+and sends half-finished messages in chat boxes that submit on Enter. A segment
+is the largest unit that is never wrong later, so it is the right unit to
+commit. Showing unstable text in a floating overlay — where it can be revised
+because it is not in anyone's document — remains the way to get "as you speak"
+feedback, and is deliberately deferred.
+
+**No protocol change.** The sidecar (D5) still receives complete audio and
+returns complete text. Segmentation happens on the Swift side, before the pipe.
+Streaming was affordable precisely because it needed nothing from the layer
+that is hardest to change.
+
+**Order is a correctness property, not a nicety.** Segments are transcribed
+asynchronously and a shorter one decodes faster, so independent tasks type
+them backwards — measured, and reliably: five items with inverted delays came
+out `[4, 3, 2, 1, 0]` every time. Under F18 that cannot be repaired after the
+fact, because the text is already in the user's document. `CommitQueue`
+serialises them, and the guarantee is structural rather than probabilistic:
+every link awaits its predecessor, and links are only created on the main actor
+in capture order.
+
+**The separator has to be reconstructed.** A space that used to fall inside one
+transcript is now a decision at every boundary, made without the ability to fix
+it afterwards. Unconditional spacing breaks Chinese and puts a space before
+every comma; no spacing runs English words together. `TranscriptJoiner` decides
+from the boundary characters, and follows the unspaced side at a code-switch
+boundary — `开会 discuss` reads correctly and `开会discuss` does not, while
+`deploy 到` is acceptable either way. Hangul is deliberately excluded from the
+unspaced set: Korean sits beside the CJK blocks and does space its words.
+
+**Why it is the default.** The only thing streaming gives up is the M4
+post-correction pass, which does not exist. Until it does, this is a choice
+between a mode with a cost and no benefit and a mode with a benefit and no
+cost. When M4 lands the trade becomes real and this decision should be
+re-taken rather than inherited; the setting is already there for anyone who
+wants the other behaviour today.
+
+**Also fixed here.** `LatencySample.captureMillis` ran from the moment the
+microphone opened, so the number checked against the 1 s budget included the
+whole of the user's speech and no utterance longer than a second could pass
+however fast the model was. Streaming turned that from wrong into absurd — a
+three-minute session would have reported three minutes of latency. It now
+measures from the audio being complete to work starting on it, which is the
+drain wait plus queue time: the wait the user actually experiences after they
+stop speaking.

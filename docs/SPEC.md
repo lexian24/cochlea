@@ -580,7 +580,9 @@ LoRA on a small LM (Qwen3 0.6B class) over `(hypothesis, final_text)` pairs.
 Replay buffer with fixed correct/corrected ratio. Nightly scheduling gated on
 AC, idle, and memory headroom. Resource guard. `dictate rebuild`.
 Post-correction disabled in live streaming mode
-([F18](#f18--layer-stacking-adds-latency)).
+([F18](#f18--layer-stacking-adds-latency)) — which, since D9, is the shipping
+default, so M4 must either earn back the wait or accept that it runs for a
+minority of sessions.
 
 **Acceptance:** eval gate passes before promotion, every time, with no manual
 step. Latency budget still met. `dictate rebuild` reproduces an equivalent

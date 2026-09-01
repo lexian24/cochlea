@@ -51,6 +51,20 @@ public struct VoiceActivityDetector: Sendable {
         /// it whatever the estimate believes.
         public var maximumThreshold: Float = 0.08
 
+        /// Silence that ends a *segment* while dictation continues.
+        ///
+        /// Shorter than `hangoverSeconds`, and for a different job. The
+        /// hangover is a safety net for someone who stops talking without
+        /// letting go of the key, so it should outlast a pause for thought.
+        /// This one is a commit point in streaming mode: it fires while the
+        /// user is still dictating and the next thing that happens is text
+        /// appearing at their cursor, so waiting 1.5 s for it is the exact
+        /// delay streaming exists to remove. Set at roughly the length of a
+        /// clause boundary — long enough not to cut mid-phrase, short enough
+        /// that the first words arrive while the sentence is still being
+        /// spoken.
+        public var segmentPauseSeconds: Double = 0.7
+
         /// Utterances shorter than this are discarded as accidental taps.
         public var minimumSpeechSeconds: Double = 0.25
 
@@ -112,6 +126,15 @@ public struct NoiseFloor: Sendable {
 /// Accumulates frames into one utterance, ending it after enough trailing
 /// silence.
 public final class Segmenter {
+
+    /// Cut at every pause and hand back each piece, rather than holding the
+    /// whole session and returning it at the end.
+    ///
+    /// Only the pause *length* changes; the mechanism is the one that already
+    /// ended utterances mid-hold. What differs is downstream — the caller
+    /// keeps the microphone open and types each piece as it arrives.
+    public var streaming: Bool = false
+
     private let vad: VoiceActivityDetector
     private let sampleRate: Double
     private var samples: [Float] = []
@@ -141,6 +164,11 @@ public final class Segmenter {
 
     public var isEmpty: Bool { samples.isEmpty }
 
+    /// How much silence ends the current piece of audio.
+    public var pauseSeconds: Double {
+        streaming ? vad.parameters.segmentPauseSeconds : vad.parameters.hangoverSeconds
+    }
+
     /// Appends a frame. Returns the finished utterance when silence ends it.
     public func accept(frame: [Float]) -> [Float]? {
         let duration = Double(frame.count) / sampleRate
@@ -162,29 +190,39 @@ public final class Segmenter {
             return nil
         }
         trailingSilenceSeconds += duration
-        guard trailingSilenceSeconds >= vad.parameters.hangoverSeconds else { return nil }
-        return finish()
+        guard trailingSilenceSeconds >= pauseSeconds else { return nil }
+        return finish(keepingNoiseFloor: streaming)
     }
 
     /// Ends the utterance now, as when the user releases the hotkey.
+    ///
+    /// `keepingNoiseFloor` carries the room measurement across a streaming
+    /// segment boundary. Re-measuring from scratch every 0.7 s would seed the
+    /// estimate from whatever frame arrives next, and the frame after a cut is
+    /// as likely to be the user resuming as it is to be more silence — which
+    /// is the exact input that made the estimator discard a whole utterance
+    /// once already. Nothing about the room changed at the boundary, so
+    /// nothing needs re-learning.
     @discardableResult
-    public func finish() -> [Float]? {
+    public func finish(keepingNoiseFloor: Bool = false) -> [Float]? {
         // Captured before the reset in `defer`, or the caller can only ever
         // read the cleared values.
         decisionNoiseFloor = noiseFloor.level
         decisionThreshold = currentThreshold
         decisionSpeechSeconds = speechSeconds
-        defer { reset() }
+        defer { reset(keepingNoiseFloor: keepingNoiseFloor) }
         guard speechSeconds >= vad.parameters.minimumSpeechSeconds else { return nil }
         return samples
     }
 
-    public func reset() {
+    public func reset(keepingNoiseFloor: Bool = false) {
         samples.removeAll(keepingCapacity: true)
         trailingSilenceSeconds = 0
         speechSeconds = 0
         // The room is re-measured per utterance: the user may have moved, put
-        // headphones on, or closed a window since the last one.
-        noiseFloor.reset()
+        // headphones on, or closed a window since the last one. Within one
+        // session that is not true of a segment boundary, so streaming keeps
+        // what it has already learned.
+        if !keepingNoiseFloor { noiseFloor.reset() }
     }
 }

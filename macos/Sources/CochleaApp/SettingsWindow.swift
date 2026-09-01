@@ -133,6 +133,24 @@ struct DictationSettings: View {
                     .foregroundStyle(.secondary)
             }
 
+            Divider().padding(.vertical, 6)
+
+            Section {
+                Toggle("Type as I speak", isOn: Binding(
+                    get: { model.configuration.mode == .liveStreaming },
+                    set: { model.configuration.mode = $0 ? .liveStreaming : .commitOnRelease }
+                ))
+                Text(model.configuration.mode == .liveStreaming
+                     ? "Each phrase appears at your cursor when you pause, "
+                     + "instead of all at once at the end."
+                     : "Nothing is typed until you stop. Slower to appear, but "
+                     + "the whole utterance is transcribed together.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("When text appears").font(.headline)
+            }
+
             if model.configuration.activation != .holdToTalk {
                 Divider().padding(.vertical, 6)
                 Section {

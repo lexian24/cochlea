@@ -93,8 +93,9 @@ open questions.
 | **T5** VAD / mic closes | **Passes after a fix.** Silence now ends the utterance mid-hold and the text is typed before release. See below. |
 | **T6** device change | **Passes after a fix.** Switching the input device to AirPods mid-session is detected, the graph is rebuilt on the next press, and dictation continues. Previously it hung the app. |
 
-Every core test now passes on this machine. **T8 (main-actor traffic under
-load) is the only one never run.**
+Every core test above now passes on this machine. **T8, T9 and T10 have never
+been run** — T9 and T10 cover behaviour that did not exist when the first
+hand-test happened.
 
 Two observations that are not bugs but are worth knowing:
 
@@ -259,6 +260,67 @@ object to it eventually.
 
 **Write down:** dropped frames, UI hitching, or audio glitches. The fix is to
 move the segmenter off the main actor.
+
+---
+
+## T9 — Streaming: does text arrive while you are still talking?
+
+New, and the reason latch mode is usable for a paragraph. Never hand-tested.
+
+Streaming is on by default. Confirm it in the menu bar → Settings… →
+Dictation → **Type as I speak**, then:
+
+1. Put the cursor in TextEdit.
+2. **Tap** `⌃⌥D` (do not hold) so it latches.
+3. Say a sentence, **pause for about a second**, say another, pause, say a
+   third. Then tap `⌃⌥D` again to stop.
+
+What should happen: each sentence appears at your cursor a moment after you
+stop saying it, not all three at the end.
+
+In the log you should see one `[vad] segment ended by a 0.7s pause` and one
+`[inject] typed N characters` per sentence, alternating — never two `vad`
+lines in a row before the first `inject`.
+
+Three things to look at closely, because they are what streaming can get
+wrong and F18 means none of them can be repaired after the fact:
+
+- **Order.** Are the sentences in the order you said them? This is the failure
+  that matters most. `CommitQueue` exists to prevent it, and the same work
+  without it came out exactly reversed in a harness.
+- **Spacing.** Is there exactly one space between sentences, and none before a
+  comma or full stop? If you speak Chinese, check that no space appears
+  between Chinese segments, and that a switch between languages reads
+  correctly.
+- **Cut points.** Does it ever cut mid-phrase? 0.7 s is a guess at a clause
+  boundary. If it chops you off mid-sentence, say so and roughly how long your
+  pauses are — the number is one line to change.
+
+Then turn **Type as I speak** off and repeat. Nothing should appear until you
+tap to stop. That difference is the whole setting.
+
+---
+
+## T10 — Activation modes and rebinding
+
+Also new, also never hand-tested.
+
+1. **Hold.** Hold `⌃⌥D`, speak, release. Should behave exactly as it always
+   has.
+2. **Tap.** Tap it. The menu bar icon should stay filled and the log should say
+   `latched after a NNN ms tap`. Speak. Tap again to stop.
+3. **The boundary.** A press of roughly 400 ms is ambiguous by construction.
+   Try a few deliberate short presses and see whether the split feels right; if
+   short deliberate utterances keep latching, `tapThresholdMillis` is too low.
+4. **Rebind.** Settings… → Shortcuts, click the field, press something else
+   (say `⌃⌥Space`). It should apply immediately, with no restart and no Apply
+   button. Check the menu bar's first line now names the new shortcut, quit,
+   relaunch, and confirm it survived.
+5. **Reject a bad one.** Press a bare letter with no modifiers. It should
+   refuse and say why, and the old shortcut should still work.
+6. **Collide.** Bind it to something macOS already owns (`⌘Space`). It should
+   fail with a readable reason and fall back to what was working — not leave
+   you with no way to dictate.
 
 ---
 

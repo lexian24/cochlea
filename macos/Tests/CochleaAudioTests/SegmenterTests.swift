@@ -204,3 +204,74 @@ final class SegmenterTests: XCTestCase {
         XCTAssertNil(segmenter.currentNoiseFloor)
     }
 }
+
+/// Streaming cuts the same way, at a shorter pause, and keeps going.
+final class StreamingSegmenterTests: XCTestCase {
+
+    func testStreamingCutsAtTheShorterPause() {
+        // The 1.5 s hangover is a safety net for someone who stops talking
+        // without letting go. As a commit point it is the exact delay
+        // streaming exists to remove.
+        let segmenter = Segmenter()
+        segmenter.streaming = true
+        XCTAssertEqual(segmenter.pauseSeconds, 0.7, accuracy: 1e-9)
+        segmenter.streaming = false
+        XCTAssertEqual(segmenter.pauseSeconds, 1.5, accuracy: 1e-9)
+    }
+
+    func testOneSessionYieldsSeveralSegments() {
+        // The whole point: a long dictation reaches the cursor in pieces
+        // rather than in one lump at the end.
+        let segmenter = Segmenter()
+        segmenter.streaming = true
+        var segments: [[Float]] = []
+        for _ in 0..<2 {
+            feedRoomTone(segmenter)
+            for _ in 0..<5 {
+                if let done = segmenter.accept(frame: frame(0.3)) { segments.append(done) }
+            }
+            // 0.8 s of silence, past the 0.7 s segment pause.
+            for _ in 0..<8 {
+                if let done = segmenter.accept(frame: frame(0.001)) { segments.append(done) }
+            }
+        }
+        XCTAssertEqual(segments.count, 2,
+                       "each pause should have committed one segment")
+    }
+
+    func testTheSamePauseDoesNotCutWhenStreamingIsOff() {
+        // Same audio, same detector, only the mode differs -- so a regression
+        // here is the mode wiring and not the detector.
+        let segmenter = Segmenter()
+        feedRoomTone(segmenter)
+        for _ in 0..<5 { _ = segmenter.accept(frame: frame(0.3)) }
+        var cut = false
+        for _ in 0..<8 where segmenter.accept(frame: frame(0.001)) != nil { cut = true }
+        XCTAssertFalse(cut, "0.8 s is short of the 1.5 s hangover")
+    }
+
+    func testTheRoomMeasurementSurvivesASegmentBoundary() {
+        // Re-seeding every 0.7 s would take its estimate from whichever frame
+        // arrives next, and the frame after a cut is as likely to be the user
+        // resuming as it is to be more silence. Seeding the floor with speech
+        // is what discarded a whole utterance once already.
+        let segmenter = Segmenter()
+        segmenter.streaming = true
+        feedRoomTone(segmenter)
+        for _ in 0..<5 { _ = segmenter.accept(frame: frame(0.3)) }
+        for _ in 0..<8 { _ = segmenter.accept(frame: frame(0.001)) }
+        XCTAssertNotNil(segmenter.currentNoiseFloor,
+                        "the room did not change at the boundary")
+    }
+
+    func testEndingTheSessionStillClearsTheRoomMeasurement() {
+        // Across sessions it must be re-measured: the user may have moved,
+        // put headphones on, or closed a window.
+        let segmenter = Segmenter()
+        segmenter.streaming = true
+        feedRoomTone(segmenter)
+        for _ in 0..<5 { _ = segmenter.accept(frame: frame(0.3)) }
+        _ = segmenter.finish()
+        XCTAssertNil(segmenter.currentNoiseFloor)
+    }
+}

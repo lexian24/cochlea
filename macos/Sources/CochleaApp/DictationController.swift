@@ -33,7 +33,14 @@ public final class DictationController {
     private var segmenter = Segmenter()
     private var transcriber: Transcriber
     private var hasTranscribedOnce = false
+    /// When the microphone opened, for the session-length line in the log.
     private var captureStartedAt: Date?
+    /// Reconstructs the separator between streamed segments.
+    private var joiner = TranscriptJoiner()
+
+    /// Keeps streamed segments reaching the cursor in the order they were
+    /// spoken. See `CommitQueue`.
+    private let commits = CommitQueue()
     /// Whether the microphone is open, which is *not* the same question as
     /// `state == .listening`. VAD can finish an utterance while the key is
     /// still held, moving the state to `.transcribing` and then `.idle` with
@@ -97,6 +104,7 @@ public final class DictationController {
             "accessibility: \(AccessibilityPermission.isTrusted() ? "granted" : "not yet granted")",
             "language:    \(configuration.language ?? "auto-detect")",
             "hotkey:      \(configuration.hotkey.displayString) (\(configuration.activation.rawValue))",
+            "output:      \(configuration.mode == .liveStreaming ? "streamed at each pause" : "committed when you stop")",
         ])
 
         // F19: warm the model at launch so the first press does not pay load
@@ -124,6 +132,7 @@ public final class DictationController {
     }
 
     public func stop() {
+        commits.cancel()
         try? hotkey.unregister()
         capture.stop()
         isCapturing = false
@@ -239,8 +248,16 @@ public final class DictationController {
             Diagnostics.log("timing", "permission checks: \(permissionMillis) ms")
         }
 
+        segmenter.streaming = configuration.mode == .liveStreaming
         segmenter.reset()
         captureStartedAt = Date()
+        // Enqueued rather than called, because a previous session's last
+        // segment may still be decoding. Resetting underneath it would put a
+        // space in front of text that is about to be typed at a cursor the
+        // separator knows nothing about. Awaiting the chain here instead would
+        // be worse: it delays opening the microphone, which costs the first
+        // word.
+        commits.enqueue { [weak self] in self?.joiner.reset() }
         do {
             try capture.start { [weak self] frame in
                 Task { @MainActor in self?.accept(frame: frame) }
@@ -288,10 +305,14 @@ public final class DictationController {
         // In commit-on-release the hotkey ends the utterance, but VAD still
         // ends it early if the user stops speaking and holds the key.
         if let finished = segmenter.accept(frame: frame) {
-            Diagnostics.log("vad", "silence ended the utterance while the key "
-                + "was still held (\(finished.count) samples, "
-                + describeDecision() + ")")
-            Task { await transcribeAndType(finished) }
+            Diagnostics.log("vad", segmenter.streaming
+                ? "segment ended by a "
+                  + "\(String(format: "%.1f", segmenter.pauseSeconds))s pause "
+                  + "(\(finished.count) samples, " + describeDecision() + ")"
+                : "silence ended the utterance while the key "
+                  + "was still held (\(finished.count) samples, "
+                  + describeDecision() + ")")
+            commit(finished)
         }
     }
 
@@ -316,6 +337,10 @@ public final class DictationController {
 
         isCapturing = false
         capture.stop()
+        if let opened = captureStartedAt {
+            Diagnostics.log("capture", "session lasted "
+                + "\(String(format: "%.1f", Date().timeIntervalSince(opened)))s")
+        }
         guard let samples = segmenter.finish() else {
             // Two different things, and calling both "an accidental tap" was
             // wrong: holding the key through silence after VAD already
@@ -332,25 +357,57 @@ public final class DictationController {
         Diagnostics.log("vad", describeDecision())
         Diagnostics.log("capture", "captured \(samples.count) samples "
                       + "(\(String(format: "%.2f", Double(samples.count) / 16_000))s)")
-        await transcribeAndType(samples)
+        commit(samples)
+        // The session is not over until its last segment is at the cursor.
+        // Without this the state returns to idle -- and the menu bar says
+        // "ready" -- while text is still arriving.
+        await commits.drain()
     }
 
-    private func transcribeAndType(_ samples: [Float]) async {
-        state = .transcribing
-        let captureMillis = captureStartedAt.map {
-            Int(Date().timeIntervalSince($0) * 1000)
-        } ?? 0
+    // MARK: - ordered commits
+
+    /// Transcribes and types one piece of audio, after everything already
+    /// queued has reached the cursor.
+    ///
+    /// The timestamp is taken here, at the instant the audio became complete,
+    /// and not inside the queued work: the gap between the two *is* the queue
+    /// wait, which streaming introduces and which the user feels directly as
+    /// a segment appearing late.
+    private func commit(_ samples: [Float]) {
+        let readyAt = Date()
+        commits.enqueue { [weak self] in
+            await self?.transcribeAndType(samples, readyAt: readyAt)
+        }
+    }
+
+    private func transcribeAndType(_ samples: [Float], readyAt: Date) async {
+        // Only the last commit of a session shows as transcribing. A mid-
+        // session segment leaves the icon on "listening", which is the true
+        // answer: the microphone is still open, and flickering it every
+        // 0.7 s would report a state change that is not one.
+        if !isCapturing { state = .transcribing }
+        // From the audio being complete to work starting on it: the drain wait
+        // plus however long this commit spent queued behind an earlier one.
+        //
+        // It used to run from `captureStartedAt`, the moment the microphone
+        // opened, which put the whole of the user's speech inside the number
+        // the 1 s budget is checked against — so a four-second sentence could
+        // not pass however fast the model was. Streaming turned that from
+        // wrong into absurd, with a three-minute session reporting a
+        // three-minute latency. The budget is about the wait after speaking,
+        // and this measures that.
+        let captureMillis = Int(Date().timeIntervalSince(readyAt) * 1000)
         do {
             let result = try await transcriber.transcribe(samples: samples)
             Diagnostics.log("asr", "\(result.inferenceMillis) ms -> \(result.text.debugDescription)")
             let injectionStart = Date()
-            let text = postProcess(result.text)
-            if text.isEmpty {
-                note("inject", "nothing to type — the model returned no text")
-            } else {
+            let text = joiner.join(postProcess(result.text))
+            if let text, !text.isEmpty {
                 try injector.type(text)
                 note("inject", "typed \(text.count) characters in "
                    + "\(result.inferenceMillis) ms")
+            } else {
+                note("inject", "nothing to type — the model returned no text")
             }
             latency.record(LatencySample(
                 captureMillis: captureMillis,
@@ -359,7 +416,7 @@ public final class DictationController {
                 wasColdStart: !hasTranscribedOnce
             ))
             hasTranscribedOnce = true
-            state = .idle
+            state = isCapturing ? .listening : .idle
         } catch {
             note("error", String(describing: error))
             state = .failed(String(describing: error))

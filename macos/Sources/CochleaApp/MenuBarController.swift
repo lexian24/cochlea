@@ -52,6 +52,7 @@ public final class MenuBarController {
         default:           how = "hold, or tap to keep listening"
         }
         shortcutItem.title = "Dictate: \(shortcut) — \(how)"
+        shortcutItem.toolTip = shortcutItem.title
     }
 
     /// The last thing that happened, so a failure is readable without a log.
