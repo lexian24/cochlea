@@ -13,12 +13,12 @@ class Cochlea < Formula
 
   desc "Local-only personalized dictation that adapts to one person"
   homepage "https://github.com/lexian24/cochlea"
-  # Pinned to a commit rather than a tag: this repository has no release tag
-  # yet. A commit tarball is immutable, so the checksum below stays valid.
-  url "https://github.com/lexian24/cochlea/archive/3b274ea23cc91eb761b90da6889c0e2f7f28423c.tar.gz"
-  # Homebrew cannot infer a version from a commit URL, so it is declared.
+  # Both fields are written by scripts/stamp-formula.sh, which fetches the
+  # published tarball and takes its checksum -- a formula cannot be published
+  # with a placeholder hash, and the hash cannot be known until the tag exists.
+  url "https://github.com/lexian24/cochlea/archive/refs/tags/v0.2.0.tar.gz"
   version "0.2.0"
-  sha256 "d3e46e752b380ca940fdcffd05ed682bd070ff19421ec93c0f26b4adcc414cdf"
+  sha256 "8773595c36233544151b8a913ca90ae7b5505b456c3d4c768f8893ae147d56ef"
   license "MIT"
   head "https://github.com/lexian24/cochlea.git", branch: "main"
 
