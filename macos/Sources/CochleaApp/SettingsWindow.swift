@@ -240,100 +240,20 @@ struct LearningSettings: View {
         _lexicon = StateObject(wrappedValue: LexiconModel(home: model.configuration.home))
     }
 
+    // Broken into computed sub-views rather than written as one `body`.
+    //
+    // Not a style preference: as a single expression this failed to compile on
+    // CI with "unable to type-check this expression in reasonable time", while
+    // building fine locally. SwiftUI's builders are generic enough that the
+    // solver's cost grows sharply with the size of one body, and a machine
+    // fast enough to get away with it is not the machine that has to.
     var body: some View {
         Form {
-            Section {
-                if lexicon.entries.isEmpty {
-                    Text("Nothing yet.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    Text("cochlea does not know your vocabulary until you give it "
-                       + "some. Import a file below, or make corrections once "
-                       + "correction capture exists.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(summary).font(.callout).foregroundStyle(.secondary)
-                    List {
-                        ForEach(lexicon.entries) { entry in
-                            HStack(spacing: 8) {
-                                Image(systemName: entry.isPhrase
-                                      ? "text.quote" : "textformat.abc")
-                                    .foregroundStyle(.secondary)
-                                    .help(entry.isPhrase
-                                          ? "A phrase. Only boosted in context."
-                                          : "A single word.")
-                                Text(entry.term)
-                                Spacer()
-                                Text(entry.hits == 0
-                                     ? "not used yet"
-                                     : "used \(entry.hits)x")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Button {
-                                    lexicon.remove(entry.term)
-                                } label: {
-                                    Image(systemName: "minus.circle")
-                                }
-                                .buttonStyle(.borderless)
-                                .help("Stop biasing towards this")
-                            }
-                        }
-                    }
-                    .frame(minHeight: 120, maxHeight: 180)
-                    Text("Changes take effect the next time the ASR helper starts.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } header: {
-                Text("Words cochlea listens for").font(.headline)
-            }
-
+            knownWords
             Divider().padding(.vertical, 6)
-
-            Section {
-                HStack {
-                    Button("Import from a file…") { lexicon.chooseFile() }
-                        .disabled(lexicon.isRunning)
-                    if lexicon.isRunning { ProgressView().controlSize(.small) }
-                    Spacer()
-                    if !lexicon.entries.isEmpty {
-                        Button("Show the file") { lexicon.revealInFinder() }
-                    }
-                }
-                Text("A chat export, your notes, anything you have written. "
-                   + "cochlea reads it, proposes what it found, and writes "
-                   + "nothing until you say yes.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                if let problem = lexicon.problem {
-                    Text(problem).font(.callout).foregroundStyle(.red)
-                }
-            } header: {
-                Text("Teach it your vocabulary").font(.headline)
-            }
-
+            importer
             Divider().padding(.vertical, 6)
-
-            Section {
-                Text("Not yet. Nothing on this machine trains a model today.")
-                    .font(.callout)
-                Text("Biasing above is instant and needs no training: the words "
-                   + "you import take effect the next time dictation starts. "
-                   + "Training a model on your corrections is a later stage, "
-                   + "and it is gated — an adapter that scores worse on held-out "
-                   + "data than the one it replaces is never promoted. When it "
-                   + "does run it will be while you are idle and on power, and "
-                   + "never while you are dictating.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Text("What is missing first is a way to capture a correction, "
-                   + "which needs the app, not the engine.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("When does it train?").font(.headline)
-            }
+            training
         }
         .formStyle(.grouped)
         .onAppear { lexicon.reload() }
@@ -353,6 +273,80 @@ struct LearningSettings: View {
         }
     }
 
+    @ViewBuilder
+    private var knownWords: some View {
+        Section {
+            if lexicon.entries.isEmpty {
+                Text("Nothing yet.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text("cochlea does not know your vocabulary until you give it "
+                   + "some. Import a file below, or make corrections once "
+                   + "correction capture exists.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(summary).font(.callout).foregroundStyle(.secondary)
+                List(lexicon.entries) { entry in
+                    LexiconRow(entry: entry) { lexicon.remove(entry.term) }
+                }
+                .frame(minHeight: 120, maxHeight: 180)
+                Text("Changes take effect the next time the ASR helper starts.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Words cochlea listens for").font(.headline)
+        }
+    }
+
+    @ViewBuilder
+    private var importer: some View {
+        Section {
+            HStack {
+                Button("Import from a file…") { lexicon.chooseFile() }
+                    .disabled(lexicon.isRunning)
+                if lexicon.isRunning { ProgressView().controlSize(.small) }
+                Spacer()
+                if !lexicon.entries.isEmpty {
+                    Button("Show the file") { lexicon.revealInFinder() }
+                }
+            }
+            Text("A chat export, your notes, anything you have written. "
+               + "cochlea reads it, proposes what it found, and writes "
+               + "nothing until you say yes.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            if let problem = lexicon.problem {
+                Text(problem).font(.callout).foregroundStyle(.red)
+            }
+        } header: {
+            Text("Teach it your vocabulary").font(.headline)
+        }
+    }
+
+    @ViewBuilder
+    private var training: some View {
+        Section {
+            Text("Not yet. Nothing on this machine trains a model today.")
+                .font(.callout)
+            Text("Biasing above is instant and needs no training: the words you "
+               + "import take effect the next time dictation starts. Training a "
+               + "model on your corrections is a later stage, and it is gated — "
+               + "an adapter that scores worse on held-out data than the one it "
+               + "replaces is never promoted. When it does run it will be while "
+               + "you are idle and on power, and never while you are dictating.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Text("What is missing first is a way to capture a correction, which "
+               + "needs the app, not the engine.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        } header: {
+            Text("When does it train?").font(.headline)
+        }
+    }
+
     private var summary: String {
         let total = lexicon.entries.count
         let phrases = lexicon.entries.filter(\.isPhrase).count
@@ -361,6 +355,32 @@ struct LearningSettings: View {
         if phrases > 0 { parts.append("\(phrases) of them phrases") }
         parts.append(used == 0 ? "none used yet" : "\(used) used so far")
         return parts.joined(separator: ", ") + "."
+    }
+}
+
+/// One entry in the list: what it is, whether it has ever won, and a way out.
+struct LexiconRow: View {
+    let entry: LexiconFile.Entry
+    let remove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: entry.isPhrase ? "text.quote" : "textformat.abc")
+                .foregroundStyle(.secondary)
+                .help(entry.isPhrase
+                      ? "A phrase. Only boosted in context."
+                      : "A single word.")
+            Text(entry.term)
+            Spacer()
+            Text(usage).font(.caption).foregroundStyle(.secondary)
+            Button(action: remove) { Image(systemName: "minus.circle") }
+                .buttonStyle(.borderless)
+                .help("Stop biasing towards this")
+        }
+    }
+
+    private var usage: String {
+        entry.hits == 0 ? "not used yet" : "used \(entry.hits)x"
     }
 }
 

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from . import SCHEMA_VERSION, __version__, phonetics
 from .adapters import LAYERS, AdapterRegistry
+from .attribution import classify
 from .evaluation import HoldoutManager, evaluate, gate
 from .profiles import Formality, Profile, ProfileSet
 from .retention import FeatureStore, KeyStore, SpeakerVerifier
@@ -23,7 +24,8 @@ from .training import ResourceGuard
 from .importers import get as get_importer
 from .lexicon import (Lexicon, HomophoneRejected, detect_variants,
                       extract_phrases, extract_terms)
-from .store import CorrectionStore
+from .attribution import QUARANTINED, REVISION
+from .store import CorrectionStore, Utterance
 
 NOT_YET = {
     # Orchestration for these exists (see cochlea.training); what is missing is
@@ -57,8 +59,13 @@ def _registry(args) -> AdapterRegistry:
 
 
 def _store(args) -> CorrectionStore:
-    return CorrectionStore(args.store or default_store_path(),
-                           text_only=not args.acoustic)
+    path = args.store or default_store_path()
+    # `default_store_path` creates its directory; an explicit `--store` did
+    # not, so pointing at one that does not exist yet failed with a bare
+    # sqlite3 "unable to open database file" -- which names neither the path
+    # nor the reason.
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    return CorrectionStore(path, text_only=not args.acoustic)
 
 
 def cmd_import(args) -> int:
@@ -219,6 +226,58 @@ def _logit_boost(strength: float) -> float:
     from .biasing import logit_boost
 
     return logit_boost(strength)
+
+
+def cmd_correct(args) -> int:
+    """Record one correction, with the F1 filter applied.
+
+    The app calls this after the fix-last panel. Attribution is decided here
+    rather than in Swift for the same reason extraction is: F1's three-signal
+    heuristic is one rule, and a second implementation would be two that have
+    to agree forever.
+    """
+    verdict = classify(
+        args.hypothesis,
+        args.final,
+        correction_source=args.source,
+        latency_ms=args.latency_ms,
+        language=args.language,
+    )
+    store = _store(args)
+    utterance = Utterance(
+        hypothesis=args.hypothesis,
+        final_text=args.final,
+        base_model_id=args.model or "unknown",
+        correction_source=args.source,
+        correction_latency_ms=args.latency_ms,
+        phonetic_distance=verdict.phonetic_distance,
+        attribution=verdict.attribution,
+        app_bundle_id=args.app,
+    )
+    utterance_id = store.add(utterance)
+
+    if args.json:
+        print(json.dumps({
+            "id": utterance_id,
+            "attribution": verdict.attribution,
+            "phonetic_distance": verdict.phonetic_distance,
+            "reason": verdict.reason,
+            "failed_signals": verdict.failed,
+        }))
+        return 0
+    print(f"recorded {utterance_id[:8]} as {verdict.attribution}")
+    print(f"  {verdict.reason}")
+    if verdict.failed:
+        print(f"  failed signals: {', '.join(verdict.failed)}")
+    # Three outcomes, three different consequences, and saying "quarantined"
+    # for all of them was wrong: a revision is filed and never trained on,
+    # only a quarantine waits for a person.
+    if verdict.attribution == QUARANTINED:
+        print("  waiting for adjudication (F1) -- `dictate review`")
+    elif verdict.attribution == REVISION:
+        print("  kept, but never trained on: this reads as a change of mind, "
+              "not an ASR error (F1)")
+    return 0
 
 
 def cmd_review(args) -> int:
@@ -526,6 +585,19 @@ def main(argv: list[str] | None = None) -> int:
     lx.add_argument("--boost", type=float, default=1.5,
                     help="strength, 1.0 is neutral (default 1.5 = 6 logits, D8)")
     lx.set_defaults(func=cmd_lexicon)
+
+    cor = sub.add_parser("correct", help="record one correction (the app calls this)")
+    cor.add_argument("--hypothesis", required=True, help="what was transcribed")
+    cor.add_argument("--final", required=True, help="what the user meant")
+    cor.add_argument("--latency-ms", type=int,
+                     help="how long after the text appeared the fix was made")
+    cor.add_argument("--source", default="fix_last",
+                     choices=["fix_last", "review_queue"])
+    cor.add_argument("--app", help="bundle identifier of the app being typed into")
+    cor.add_argument("--model", help="base model that produced the hypothesis")
+    cor.add_argument("--language", default="en")
+    cor.add_argument("--json", action="store_true")
+    cor.set_defaults(func=cmd_correct)
 
     sub.add_parser("review", help="show the correction queue").set_defaults(func=cmd_review)
 
