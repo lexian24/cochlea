@@ -646,3 +646,74 @@ the same installed handler, so two `HotkeyMonitor` instances would each fire on
 the other's presses — pressing fix-last would also start dictating. The events
 carry an `EventHotKeyID`; reading it is what tells them apart, and that means
 one monitor owning every shortcut rather than one per shortcut.
+
+---
+
+## D12 — A correction teaches the lexicon immediately
+
+**Date.** 2026-09-01. **Status.** Accepted.
+
+**Context.** Fix-last (D11) filed corrections into the store and nothing else
+happened. The store is the input to M4's trainer, which does not exist — so
+from the user's side, correcting a word did *nothing*: the same word was
+misheard on the very next utterance, and there was no way to tell whether the
+correction had been recorded at all. That is the shape of a feature people stop
+using after three tries, and low capture volume is the risk SPEC §1 already
+names as the one that decides whether any of this works.
+
+**Biasing needs no training.** M2's whole property is that it takes effect
+immediately, and the lexicon is a file the ASR helper reads at startup. A word
+the user has just typed by hand is exactly the evidence the lexicon wants. So a
+correction now adds it, and the app says which words it learned.
+
+**Gated on the F1 verdict, not on the text.** Only a `correction` teaches. A
+revision is someone changing their mind, and the words they changed it to are
+not evidence the recogniser got anything wrong; learning from those fills the
+lexicon with the user's whole vocabulary rather than the part that needs help,
+which is F25 arriving through a second door.
+
+**Three kinds of correction teach nothing, on purpose:**
+
+- **Ordinary words.** `fell` → `failed` is two words Whisper knows perfectly
+  well, confused for acoustic reasons. A lexicon entry cannot fix that and can
+  make it worse by boosting one over the other.
+- **Homophones.** `there` → `their` is F5 exactly: biasing cannot separate
+  them, so an entry creates errors instead of removing them. Rejected at
+  admission and again before admission is attempted.
+- **Rewrites.** Bounded at three terms per correction, because a correction
+  that replaced half a sentence is a revision the filter did not catch.
+
+**What this does not do.** It does not touch the boost of an existing entry, so
+correcting the same word twice does not escalate it — F2's cap is about
+magnitude and this is about admission. Nor does it remove entries: the negative
+signal still has no path from the app, because nothing reads the sidecar's
+`biased_terms` yet.
+
+---
+
+## D13 — Fix-last corrects a session, not a segment
+
+**Date.** 2026-09-01. **Status.** Accepted. Supersedes part of [D11](#d11).
+
+**Context.** Streaming (D9) commits at every pause, so one spoken paragraph is
+half a dozen commits. Fix-last held only the most recent one, which meant it
+offered the final phrase — almost never where the error was. Hand-testing put
+it plainly: people dictate a whole thought, read it back, and *then* fix it.
+The unit they want to correct is the thing they just said, not its last clause.
+
+The unit is now the **session**: everything one hold or latch put at the
+cursor, joined. The hypothesis and the injected text are accumulated
+separately, because they differ by exactly the separators the joiner added —
+the correction pair needs the raw hypothesis, and the deletion needs the
+character count actually in the document.
+
+**A new session starts on the first commit, not on key-down.** An accidental
+tap or a hold through silence must not discard the paragraph the user is still
+reading. Only text actually arriving replaces it.
+
+**The window moved from two minutes to five, and now runs from the end of the
+session.** Measured per-commit, a long dictation could age out of its own
+correction window while still being spoken. Counted from when the user stopped
+talking, five minutes is the span in which someone reads back what they said —
+and the guard was never really about time, which is only a proxy for "the
+cursor has probably moved".

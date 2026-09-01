@@ -167,6 +167,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// One line saying what F1 made of a correction.
     private static func describe(_ verdict: CorrectionRecorder.Verdict) -> String {
+        // What it learned comes first when there is any, because it is the
+        // only part the user will notice before M4 exists: the words are in
+        // force on the next utterance, where the stored pair waits for a
+        // trainer that has not been written.
+        if !verdict.learned.isEmpty {
+            let terms = verdict.learned.joined(separator: ", ")
+            return "learned \(terms) — in force next time dictation starts"
+        }
         if verdict.needsReview {
             return "saved for review — it does not look like an ASR error "
                  + "(\(verdict.failed_signals.joined(separator: ", ")))"

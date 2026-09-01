@@ -105,16 +105,21 @@ public struct Configuration: Codable, Sendable {
     /// Opens the last utterance for correction.
     public var fixHotkey: HotkeyBinding = .defaultFix
 
-    /// How long after typing the app will still offer to take text back.
+    /// How long after a dictation session the app will still offer to take
+    /// its text back.
     ///
     /// It cannot see the user's document (SPEC §1 rules out watching text
     /// fields through the Accessibility API), so it cannot know whether the
     /// cursor has moved. This is a bound on how wrong it can be rather than a
-    /// check that it is right: a correction offered ten minutes later is being
-    /// made somewhere else entirely, and deleting characters there deletes the
-    /// wrong ones. Recording the correction is always offered; only taking the
-    /// text back expires.
-    public var replaceWindowSeconds: Int = 120
+    /// check that it is right. Recording the correction is always offered;
+    /// only taking the text back expires.
+    ///
+    /// Counted from the *end* of the session, which is when a person starts
+    /// reading — nobody corrects a paragraph before they have finished saying
+    /// it. Five minutes rather than two because the earlier value was
+    /// measured from each commit, so a long dictation could age out of its own
+    /// correction window while still being spoken.
+    public var replaceWindowSeconds: Int = 300
 
     /// F18 latency budget, in milliseconds, for a typical utterance.
     public var latencyBudgetMillis: Int = 1000

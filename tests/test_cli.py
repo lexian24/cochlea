@@ -8,6 +8,7 @@ in Swift would be two that have to agree forever.
 import json
 
 from cochlea import cli
+from cochlea.lexicon import Lexicon
 
 def test_correct_records_a_correction(tmp_path, capsys):
     home = tmp_path / "home"
@@ -63,3 +64,47 @@ def test_correct_emits_json_for_the_app(tmp_path, capsys):
     assert payload["attribution"] == "correction"
     assert len(payload["id"]) == 32
     assert payload["failed_signals"] == []
+
+
+def test_correct_adds_the_missed_term_to_the_lexicon(tmp_path, monkeypatch, capsys):
+    # The whole reason a correction is worth making before there is a trainer:
+    # biasing needs none, so the word lands in force for the next utterance.
+    monkeypatch.setenv("COCHLEA_HOME", str(tmp_path))
+    rc = cli.main([
+        "--store", str(tmp_path / "corrections.db"), "correct",
+        "--hypothesis", "check the ginks logs",
+        "--final", "check the nginx logs",
+        "--latency-ms", "1800", "--json",
+    ])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["learned"] == ["nginx"]
+    assert "nginx" in Lexicon.load(tmp_path / "lexicon.json").entries
+
+
+def test_a_revision_teaches_the_lexicon_nothing(tmp_path, monkeypatch, capsys):
+    # A rewrite is someone changing their mind. The words they changed it to
+    # are not evidence the recogniser got anything wrong, and learning from
+    # them fills the lexicon with the user's whole vocabulary instead of the
+    # part that needs help (F25).
+    monkeypatch.setenv("COCHLEA_HOME", str(tmp_path))
+    cli.main([
+        "--store", str(tmp_path / "corrections.db"), "correct",
+        "--hypothesis", "meet me at the cafe",
+        "--final", "actually lets reschedule the whole thing next week",
+        "--latency-ms", "60000", "--json",
+    ])
+    assert json.loads(capsys.readouterr().out)["learned"] == []
+    assert Lexicon.load(tmp_path / "lexicon.json").entries == {}
+
+
+def test_no_learn_files_the_correction_without_touching_the_lexicon(
+        tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("COCHLEA_HOME", str(tmp_path))
+    cli.main([
+        "--store", str(tmp_path / "corrections.db"), "correct",
+        "--hypothesis", "check the ginks logs",
+        "--final", "check the nginx logs",
+        "--latency-ms", "1800", "--no-learn", "--json",
+    ])
+    assert json.loads(capsys.readouterr().out)["learned"] == []
+    assert Lexicon.load(tmp_path / "lexicon.json").entries == {}

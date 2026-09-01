@@ -421,11 +421,14 @@ The interesting cases, and what each should do:
 
 Then the safety guards:
 
-- **Wait three minutes** after dictating, then press `⌃⌥F`. The panel should
+- **Wait six minutes** after dictating, then press `⌃⌥F`. The panel should
   open but refuse to touch the text, explaining that it cannot tell whether
-  your cursor moved. "Remember it" should still work.
-- **Dictate twice, then press `⌃⌥F`.** It should offer to fix the *second*
-  utterance, not the first.
+  your cursor moved. "Remember it" should still work. (The window is five
+  minutes, counted from when you *stopped* talking, not from each phrase.)
+- **Dictate, stop, dictate again, then press `⌃⌥F`.** It should offer the
+  second passage, not the first, and not both joined together.
+- **Tap the shortcut and say nothing, then press `⌃⌥F`.** An aborted press
+  must not throw away the paragraph you were about to correct.
 - **Press `⌃⌥F` with nothing dictated yet.** It should beep, not crash.
 - **Move your cursor elsewhere, then fix.** It will delete the wrong
   characters — that is expected and is why the panel warns you. Try it in a

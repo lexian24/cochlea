@@ -905,6 +905,15 @@ otherwise. Repair by backspacing is squared with F18 in
 [D11](DECISIONS.md), which also records the bound the app cannot verify: it
 cannot see the document, so it withdraws the offer on time and on any
 intervening dictation rather than pretending to know the cursor has not moved.
+A correction also teaches immediately: the word the recogniser did not know is
+added to the lexicon and is in force on the next utterance, gated on the F1
+verdict so a change of mind teaches nothing ([D12](DECISIONS.md)). That closes
+M1 to M2 without waiting for a trainer, and it is what makes a correction worth
+making today. The unit corrected is a whole dictation session rather than one
+streamed segment ([D13](DECISIONS.md)) — hand-testing found that people finish
+a thought, read it back, and then fix it, so offering them the last clause was
+offering the wrong thing.
+
 What M1 still owes is the review queue as a screen rather than a CLI command,
 and the capture-rate instrument — which cannot report anything until someone
 has used it for a while, and that is the number every downstream schedule

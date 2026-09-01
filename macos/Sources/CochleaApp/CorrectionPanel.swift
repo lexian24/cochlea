@@ -34,7 +34,8 @@ final class CorrectionPanelController {
             hypothesis: utterance.hypothesis,
             injectedCount: utterance.injected.count,
             canReplace: canReplace,
-            ageMillis: utterance.ageMillis)
+            ageMillis: utterance.ageMillis,
+            segments: utterance.segments)
         model.commit = { [weak self] text, replace in
             self?.close()
             self?.onCommit(text, replace)
@@ -73,16 +74,19 @@ final class CorrectionModel: ObservableObject {
     let injectedCount: Int
     let canReplace: Bool
     let ageMillis: Int
+    let segments: Int
 
     var commit: ((String, Bool) -> Void)?
     var cancel: (() -> Void)?
 
-    init(hypothesis: String, injectedCount: Int, canReplace: Bool, ageMillis: Int) {
+    init(hypothesis: String, injectedCount: Int, canReplace: Bool,
+         ageMillis: Int, segments: Int) {
         self.hypothesis = hypothesis
         self.text = hypothesis
         self.injectedCount = injectedCount
         self.canReplace = canReplace
         self.ageMillis = ageMillis
+        self.segments = segments
     }
 
     var isChanged: Bool {
@@ -97,12 +101,12 @@ struct CorrectionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("cochlea heard:")
+            Text(heading)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             TextField("", text: $model.text, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
-                .lineLimit(2...5)
+                .lineLimit(3...12)
                 .font(.body)
                 .focused($focused)
                 .onSubmit { if model.isChanged { model.commit?(model.text, model.canReplace) } }
@@ -132,6 +136,17 @@ struct CorrectionView: View {
         .onAppear { focused = true }
     }
 
+    /// The whole of what was dictated, not the last phrase of it.
+    ///
+    /// Streaming commits at every pause, so one spoken paragraph is several
+    /// commits. Saying how many makes it obvious that the box holds the
+    /// paragraph rather than its last clause.
+    private var heading: String {
+        model.segments > 1
+            ? "cochlea heard, across \(model.segments) phrases:"
+            : "cochlea heard:"
+    }
+
     /// Says what each button will actually do, because one of them edits the
     /// user's document and there is no way to preview that.
     private var explanation: String {
@@ -146,7 +161,7 @@ struct CorrectionView: View {
         return """
             \"Fix it\" deletes the last \(model.injectedCount) characters at \
             your cursor and types this instead. If you have moved the cursor \
-            since, choose \"Just remember it\".
+            or edited since, choose \"Just remember it\".
             """
     }
 }
@@ -159,6 +174,10 @@ enum CorrectionRecorder {
         let attribution: String
         let reason: String
         let failed_signals: [String]
+        /// Terms this correction added to the lexicon, in force from the next
+        /// helper start. The whole reason a correction is worth making before
+        /// there is a trainer.
+        let learned: [String]
 
         /// Whether this correction will ever be trained on.
         var isTrainable: Bool { attribution == "correction" }

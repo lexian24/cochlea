@@ -72,24 +72,49 @@ public final class DictationController {
     /// The fix-last shortcut was pressed.
     public var onFixLast: (() -> Void)?
 
-    /// What was typed last, and where, so it can be corrected.
+    /// Everything one dictation session put at the cursor, so it can be
+    /// corrected as a unit.
     ///
     /// SPEC §1 rules out watching text fields through the Accessibility API —
     /// fragile, breaks on every app update, and irreconcilable with the
     /// privacy positioning. So the app knows exactly one thing about the
     /// user's document: what it put there itself. That is what this holds, and
     /// it is the entire basis on which a correction can be offered.
+    ///
+    /// A **session**, not a segment. Streaming commits at every pause, so one
+    /// spoken paragraph is half a dozen commits — and holding only the last of
+    /// them meant fix-last offered the final phrase, which is almost never
+    /// where the error was. People dictate a whole thought, read it back, and
+    /// then fix it; the unit they want to correct is the thing they just said,
+    /// not its last clause.
     public struct LastUtterance: Sendable {
+        /// What the recogniser produced, joined across the session. This is
+        /// the `hypothesis` half of the training pair, so it must be the raw
+        /// output and not what reached the cursor.
         public let hypothesis: String
-        /// What actually reached the cursor, after joining. Replacing text
-        /// means deleting this many characters, not the transcript's.
+        /// What actually reached the cursor, after separators were added.
+        /// Replacing means deleting this many characters, not the
+        /// transcript's — they differ by exactly the joins.
         public let injected: String
+        /// When the *last* piece was typed. The window runs from the end of
+        /// the session, because that is when the user starts reading.
         public let injectedAt: Date
         public let appBundleIdentifier: String?
+        /// How many separate commits it took, for the log.
+        public let segments: Int
 
-        /// How long ago the text was typed, which is F1's latency signal.
+        /// How long ago the text finished arriving, which is F1's latency
+        /// signal.
         public var ageMillis: Int { Int(Date().timeIntervalSince(injectedAt) * 1000) }
     }
+
+    /// Set when a new session begins, cleared by its first commit.
+    ///
+    /// The reset is deferred rather than done at key-down on purpose: a press
+    /// that captures nothing — an accidental tap, a hold through silence —
+    /// must not throw away the paragraph the user is still reading. Only text
+    /// actually arriving starts a new session.
+    private var startsNewSession = true
 
     public private(set) var lastUtterance: LastUtterance?
 
@@ -335,7 +360,10 @@ public final class DictationController {
         // separator knows nothing about. Awaiting the chain here instead would
         // be worse: it delays opening the microphone, which costs the first
         // word.
-        commits.enqueue { [weak self] in self?.joiner.reset() }
+        commits.enqueue { [weak self] in
+            self?.joiner.reset()
+            self?.startsNewSession = true
+        }
         do {
             try capture.start { [weak self] frame in
                 Task { @MainActor in self?.accept(frame: frame) }
@@ -482,13 +510,7 @@ public final class DictationController {
             let text = joiner.join(postProcess(result.text))
             if let text, !text.isEmpty {
                 try injector.type(text)
-                lastUtterance = LastUtterance(
-                    hypothesis: result.text.trimmingCharacters(
-                        in: .whitespacesAndNewlines),
-                    injected: text,
-                    injectedAt: Date(),
-                    appBundleIdentifier: NSWorkspace.shared
-                        .frontmostApplication?.bundleIdentifier)
+                accumulate(hypothesis: result.text, injected: text)
                 note("inject", "typed \(text.count) characters in "
                    + "\(result.inferenceMillis) ms")
             } else {
@@ -520,6 +542,32 @@ public final class DictationController {
         return text
     }
 
+    /// Add one commit to the session the user would correct.
+    private func accumulate(hypothesis: String, injected: String) {
+        let clean = hypothesis.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if startsNewSession || lastUtterance == nil {
+            startsNewSession = false
+            lastUtterance = LastUtterance(
+                hypothesis: clean, injected: injected, injectedAt: Date(),
+                appBundleIdentifier: bundle, segments: 1)
+            return
+        }
+        guard let previous = lastUtterance else { return }
+        lastUtterance = LastUtterance(
+            // The hypothesis is joined with a plain space and the injected
+            // text with whatever the joiner decided. Keeping them separate is
+            // the point: one is what the model said, the other is what the
+            // document contains, and the correction pair needs the first while
+            // the deletion needs the second.
+            hypothesis: previous.hypothesis.isEmpty
+                ? clean : previous.hypothesis + " " + clean,
+            injected: previous.injected + injected,
+            injectedAt: Date(),
+            appBundleIdentifier: bundle,
+            segments: previous.segments + 1)
+    }
+
     /// Take back the last thing typed and put `text` there instead.
     ///
     /// Backspacing is what F18 forbids for *automatic* revision, and the
@@ -537,11 +585,12 @@ public final class DictationController {
             hypothesis: last.hypothesis,
             injected: text,
             injectedAt: last.injectedAt,
-            appBundleIdentifier: last.appBundleIdentifier)
+            appBundleIdentifier: last.appBundleIdentifier,
+            segments: last.segments)
         note("correct", "replaced \(last.injected.count) characters")
     }
 
-    /// Forget the last utterance, as when a correction has been filed.
+    /// Forget the last session, as when a correction has been filed.
     public func clearLastUtterance() { lastUtterance = nil }
 
     public var latencyReport: (warm: Int?, cold: Int?) {

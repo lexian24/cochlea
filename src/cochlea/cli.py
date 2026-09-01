@@ -23,8 +23,8 @@ from .retention import FeatureStore, KeyStore, SpeakerVerifier
 from .training import ResourceGuard
 from .importers import get as get_importer
 from .lexicon import (Lexicon, HomophoneRejected, detect_variants,
-                      extract_phrases, extract_terms)
-from .attribution import QUARANTINED, REVISION
+                      extract_phrases, extract_terms, terms_from_correction)
+from .attribution import CORRECTION, QUARANTINED, REVISION
 from .store import CorrectionStore, Utterance
 
 NOT_YET = {
@@ -256,6 +256,30 @@ def cmd_correct(args) -> int:
     )
     utterance_id = store.add(utterance)
 
+    # M1 -> M2. A correction that only lands in the store does nothing the
+    # user can feel: it waits for a trainer that does not exist yet, and the
+    # next utterance mishears the same word again. Biasing needs no training,
+    # so the word they just typed by hand can be in force on the next
+    # sentence.
+    #
+    # Gated on the F1 verdict, not on the text. A revision is someone changing
+    # their mind, and the words they changed it to are not evidence of
+    # anything the recogniser got wrong -- learning from those is how a
+    # lexicon fills with the user's whole vocabulary instead of the part that
+    # needs help (F25).
+    learned: list[str] = []
+    if not args.no_learn and verdict.attribution == CORRECTION:
+        lexicon = Lexicon.load(lexicon_path())
+        for term in terms_from_correction(args.hypothesis, args.final,
+                                          language=args.language):
+            try:
+                lexicon.add(term)
+                learned.append(term)
+            except HomophoneRejected:
+                pass                       # F5, already filtered, belt and braces
+        if learned:
+            lexicon.save(lexicon_path())
+
     if args.json:
         print(json.dumps({
             "id": utterance_id,
@@ -263,6 +287,7 @@ def cmd_correct(args) -> int:
             "phonetic_distance": verdict.phonetic_distance,
             "reason": verdict.reason,
             "failed_signals": verdict.failed,
+            "learned": learned,
         }))
         return 0
     print(f"recorded {utterance_id[:8]} as {verdict.attribution}")
@@ -272,6 +297,9 @@ def cmd_correct(args) -> int:
     # Three outcomes, three different consequences, and saying "quarantined"
     # for all of them was wrong: a revision is filed and never trained on,
     # only a quarantine waits for a person.
+    if learned:
+        print(f"  added to your lexicon: {', '.join(learned)}")
+        print("  in force the next time the ASR helper starts")
     if verdict.attribution == QUARANTINED:
         print("  waiting for adjudication (F1) -- `dictate review`")
     elif verdict.attribution == REVISION:
@@ -596,6 +624,8 @@ def main(argv: list[str] | None = None) -> int:
     cor.add_argument("--app", help="bundle identifier of the app being typed into")
     cor.add_argument("--model", help="base model that produced the hypothesis")
     cor.add_argument("--language", default="en")
+    cor.add_argument("--no-learn", action="store_true",
+                     help="file the correction without adding terms to the lexicon")
     cor.add_argument("--json", action="store_true")
     cor.set_defaults(func=cmd_correct)
 

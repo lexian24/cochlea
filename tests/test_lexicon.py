@@ -1,7 +1,8 @@
 import time
 import pytest
 from cochlea.lexicon import (EXPIRY_SECONDS, MAX_BOOST, HomophoneRejected, Lexicon,
-                            detect_variants, extract_phrases, extract_terms)
+                            detect_variants, extract_phrases, extract_terms,
+                            terms_from_correction)
 
 
 def test_boost_is_capped():
@@ -287,3 +288,66 @@ def test_a_partial_write_never_replaces_a_good_lexicon(tmp_path):
     path = lexicon.save(tmp_path / "lexicon.json")
     assert not list(tmp_path.glob("*.tmp"))
     assert Lexicon.load(path).entries
+
+
+# -- learning from a correction ------------------------------------------------
+
+
+def test_a_correction_yields_the_term_the_recogniser_missed():
+    # The M1 -> M2 link. Without it a correction lands in the store, waits for
+    # a trainer that does not exist, and the next utterance mishears the same
+    # word again.
+    assert terms_from_correction(
+        "check the ginks logs", "check the nginx logs") == ["nginx"]
+    assert terms_from_correction(
+        "deploy with qbeckle", "deploy with kubectl") == ["kubectl"]
+
+
+def test_only_the_replacement_is_a_candidate():
+    # The word that was wrong is not the word to boost.
+    assert "ginks" not in terms_from_correction(
+        "check the ginks logs", "check the nginx logs")
+
+
+def test_an_ordinary_word_the_model_already_knows_is_not_learned():
+    # "fell" heard for "failed" is an acoustic confusion between two words
+    # Whisper knows perfectly well. A lexicon entry cannot fix that and could
+    # make it worse -- F2 through the correction path instead of the import
+    # one.
+    assert terms_from_correction(
+        "the deployment fell at midnight",
+        "the deployment failed at midnight") == []
+
+
+def test_a_homophone_is_never_learned_from_a_correction():
+    # F5 at the other door. Biasing cannot separate "there" from "their", so
+    # boosting one actively creates errors.
+    assert terms_from_correction(
+        "put it over there", "put it over their") == []
+
+
+def test_an_identifier_is_learned_even_if_it_looks_ordinary():
+    assert terms_from_correction(
+        "run em l x tune", "run mlx-tune") == ["mlx-tune"]
+
+
+def test_nothing_is_learned_when_nothing_changed():
+    assert terms_from_correction("same text", "same text") == []
+
+
+def test_the_number_of_terms_is_bounded():
+    # A correction that rewrote half a sentence is a revision by another name,
+    # and admitting every word of it is how a lexicon fills with noise (F25).
+    learned = terms_from_correction(
+        "aaa bbb ccc ddd eee",
+        "kubectl nginx mlx-tune metaphone pinyin",
+        max_terms=3)
+    assert len(learned) == 3
+
+
+def test_learned_terms_can_be_admitted_to_a_lexicon():
+    lexicon = Lexicon()
+    for term in terms_from_correction("check the ginks logs",
+                                      "check the nginx logs"):
+        lexicon.add(term)
+    assert "nginx" in lexicon.entries

@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Iterable
 
 from . import phonetics
+from .attribution import changed_spans
 from . import vocabulary as _vocabulary
 from .privacy import PLACEHOLDERS
 
@@ -298,6 +299,55 @@ def _is_ordinary(token: str, vocab: set[str]) -> bool:
             if candidate in vocab:
                 return True
     return False
+
+
+def terms_from_correction(
+    hypothesis: str,
+    final_text: str,
+    *,
+    vocabulary: set[str] | None = None,
+    language: str = "en",
+    max_terms: int = 3,
+) -> list[str]:
+    """What a correction says the recogniser does not know.
+
+    This is the M1 -> M2 link, and without it a correction does nothing a user
+    can feel: it lands in the store, waits for a trainer that does not exist
+    yet, and the very next utterance mishears the same word again. Biasing
+    needs no training, so the word the user just typed by hand can be in force
+    on the next sentence.
+
+    Only the *replacement* words are candidates, and only the ones that survive
+    the same filter an import uses. A correction is evidence that the
+    recogniser got a word wrong; it is not evidence that the word is unusual.
+    Fixing "there" to "their" says nothing biasing can act on -- F5 rejects it
+    outright -- and fixing "fell" to "failed" is a word Whisper knows perfectly
+    well, which it mis-heard for acoustic reasons a lexicon entry cannot fix
+    and could make worse.
+
+    Returns at most ``max_terms``, longest first: a correction that rewrote
+    half a sentence is a revision by another name, and admitting every word of
+    it is how a lexicon fills with noise (F25).
+    """
+    vocab = (
+        {w.lower() for w in vocabulary}
+        if vocabulary is not None
+        else set(_vocabulary.load(language))
+    )
+    _, after = changed_spans(hypothesis, final_text)
+    candidates: list[str] = []
+    for token in _WORD.findall(after):
+        token = token.rstrip("._-")
+        if len(token) < 3 or token in PLACEHOLDERS:
+            continue
+        if _is_ordinary(token, vocab) and not looks_technical(token):
+            continue
+        if _homophones_of(token):          # F5: biasing cannot separate these
+            continue
+        if token not in candidates:
+            candidates.append(token)
+    candidates.sort(key=lambda t: (-len(t), t))
+    return candidates[:max_terms]
 
 
 def extract_phrases(

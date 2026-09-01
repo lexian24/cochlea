@@ -391,10 +391,30 @@ struct LearningSettings: View {
                     .foregroundStyle(.secondary)
             } else {
                 Text(summary).font(.callout).foregroundStyle(.secondary)
-                List(lexicon.entries) { entry in
-                    LexiconRow(entry: entry) { lexicon.remove(entry.term) }
+                // A ScrollView, not a List.
+                //
+                // `List` brings its own scroll view, and nesting one inside
+                // the scroll view `Form` already provides gives a region that
+                // renders its first few rows and then refuses to move — which
+                // is exactly what a lexicon does the moment it is big enough
+                // to be worth reading. This owns its scrolling outright.
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(lexicon.entries) { entry in
+                            LexiconRow(entry: entry) { lexicon.remove(entry.term) }
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 8)
+                            Divider().opacity(0.4)
+                        }
+                    }
+                    .padding(.vertical, 2)
                 }
-                .frame(minHeight: 120, maxHeight: 180)
+                .frame(height: 220)
+                .background(Color(nsColor: .textBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1))
                 Text("Changes take effect the next time the ASR helper starts.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -448,10 +468,13 @@ struct LearningSettings: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Text("""
-                Corrections are being collected now: press \
-                \(model.configuration.fixHotkey.displayString) after \
-                dictation types something wrong. What is still missing is \
-                the part that trains on them.
+                Corrections work now, and they do not wait for training. \
+                Press \(model.configuration.fixHotkey.displayString) after \
+                dictation gets a word wrong: the text is fixed, the pair is \
+                filed, and any word the recogniser did not know is added to \
+                the list above — in force the next time dictation starts. \
+                What is still missing is the model that learns your accent \
+                and phrasing from those pairs.
                 """)
                 .font(.callout)
                 .foregroundStyle(.secondary)
