@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     private var menuBar: MenuBarController?
     private var controller: DictationController?
+    private var settings: SettingsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -66,6 +67,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             : "model: \(transcriber.identifier)")
         menuBar.describeEvent((transcriber as? UnavailableTranscriber)?.reason ?? "ready")
         menuBar.onQuit = { NSApp.terminate(nil) }
+
+        // Settings write straight through: every control saves and applies as
+        // it changes, so the shortcut a user records is live before the window
+        // closes. `apply` rebinds the hotkey and swaps activation mode without
+        // a restart.
+        let settings = SettingsWindowController(configuration: configuration) { [weak controller, weak menuBar] updated in
+            controller?.apply(configuration: updated)
+            menuBar?.describeShortcut(updated.hotkey.displayString,
+                                      activation: updated.activation.rawValue)
+        }
+        menuBar.onOpenSettings = { settings.show() }
+        menuBar.describeShortcut(configuration.hotkey.displayString,
+                                 activation: configuration.activation.rawValue)
+        self.settings = settings
 
         do {
             try controller.start()

@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CochleaCore
 import Foundation
 
 /// A push-to-talk global hotkey.
@@ -9,31 +10,43 @@ import Foundation
 /// dictation needs and impossible to square with the privacy positioning.
 public final class HotkeyMonitor {
 
-    public struct Binding: Sendable, Equatable {
-        public var keyCode: UInt32
-        public var modifiers: UInt32
-
-        /// Default: Fn is not addressable via RegisterEventHotKey, so
-        /// Control-Option-D is used until the user rebinds it.
-        public static let `default` = Binding(
-            keyCode: UInt32(kVK_ANSI_D),
-            modifiers: UInt32(controlKey | optionKey)
-        )
-
-        public init(keyCode: UInt32, modifiers: UInt32) {
-            self.keyCode = keyCode
-            self.modifiers = modifiers
-        }
-    }
+    /// The binding type lives in `CochleaCore` because `Configuration`
+    /// persists it; this alias keeps existing call sites reading naturally.
+    public typealias Binding = HotkeyBinding
 
     public var onPress: (() -> Void)?
     public var onRelease: (() -> Void)?
+
+    /// What is registered right now, so the settings screen can show it and
+    /// `rebind` can no-op when nothing changed.
+    public private(set) var binding: Binding = .default
 
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
     private let signature: OSType = 0x434F4348   // 'COCH'
 
     public init() {}
+
+    /// Swap the shortcut without restarting the app.
+    ///
+    /// Carbon has no rebind call: an `EventHotKeyRef` is registered for one
+    /// combination and unregistered as a unit. Tearing down and re-registering
+    /// is the whole mechanism, which is why this is cheap to offer and why a
+    /// settings screen can apply a new shortcut the instant it is recorded.
+    @discardableResult
+    public func rebind(to binding: Binding) -> Result<Void, Error> {
+        guard binding != self.binding else { return .success(()) }
+        let previous = self.binding
+        do {
+            try register(binding)
+            return .success(())
+        } catch {
+            // Put the working shortcut back rather than leaving the app with
+            // no way to dictate. A rejected binding must cost nothing.
+            try? register(previous)
+            return .failure(error)
+        }
+    }
 
     public func register(_ binding: Binding = .default) throws {
         try unregister()
@@ -68,6 +81,8 @@ public final class HotkeyMonitor {
         guard registerStatus == noErr else {
             throw HotkeyError.registrationFailed(registerStatus)
         }
+        self.binding = binding
+        Diagnostics.log("hotkey", "registered \(binding.displayString)")
     }
 
     public func unregister() throws {

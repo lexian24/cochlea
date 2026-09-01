@@ -21,9 +21,11 @@ public final class MenuBarController {
     /// answer to "what just happened?" belongs.
     private let backendItem = NSMenuItem(title: "starting…", action: nil, keyEquivalent: "")
     private let eventItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let shortcutItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
 
     public var onQuit: (() -> Void)?
     public var onTogglePauseLearning: ((Bool) -> Void)?
+    public var onOpenSettings: (() -> Void)?
 
     public init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -38,6 +40,18 @@ public final class MenuBarController {
     /// What the app is wired up to: the transcriber and the model behind it.
     public func describeBackend(_ description: String) {
         backendItem.title = description
+    }
+
+    /// The shortcut and how it behaves, so the menu answers "what do I press?"
+    /// without opening Settings.
+    public func describeShortcut(_ shortcut: String, activation: String) {
+        let how: String
+        switch activation {
+        case "holdToTalk": how = "hold"
+        case "toggle":     how = "press, then press again"
+        default:           how = "hold, or tap to keep listening"
+        }
+        shortcutItem.title = "Dictate: \(shortcut) — \(how)"
     }
 
     /// The last thing that happened, so a failure is readable without a log.
@@ -68,9 +82,17 @@ public final class MenuBarController {
 
         backendItem.isEnabled = false
         eventItem.isEnabled = false
+        shortcutItem.isEnabled = false
+        menu.addItem(shortcutItem)
         menu.addItem(backendItem)
         menu.addItem(eventItem)
         menu.addItem(.separator())
+
+        let settings = NSMenuItem(title: "Settings…",
+                                  action: #selector(openSettings),
+                                  keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
 
         let pause = NSMenuItem(title: "Pause learning",
                                action: #selector(togglePauseLearning),
@@ -90,6 +112,10 @@ public final class MenuBarController {
         learningPaused.toggle()
         sender.state = learningPaused ? .on : .off
         onTogglePauseLearning?(learningPaused)
+    }
+
+    @objc private func openSettings() {
+        onOpenSettings?()
     }
 
     @objc private func quit() {

@@ -25,7 +25,7 @@ public final class DictationController {
     }
     public var onStateChange: ((State) -> Void)?
 
-    private let configuration: Configuration
+    private var configuration: Configuration
     private let capture = AudioCapture()
     private let injector = TextInjector()
     private let hotkey = HotkeyMonitor()
@@ -40,6 +40,22 @@ public final class DictationController {
     /// the microphone deliberately still running for whatever is said next.
     /// Ending capture must therefore key off this, not off the state.
     private var isCapturing = false
+
+    // MARK: - activation state
+    //
+    // Hold-to-talk needs none of this: press begins, release ends. Toggle and
+    // hybrid do, because the key that starts an utterance is no longer the one
+    // holding it open.
+
+    /// Listening continues after the key came up, until the next press.
+    private var isLatched = false
+    /// When the current press went down, to tell a tap from a hold.
+    private var pressedAt: Date?
+    /// The press that just ended an utterance will be followed by a release
+    /// that means nothing. Without this, that release latches a new session.
+    private var ignoreNextRelease = false
+    /// Closes the microphone if an utterance runs past the cap.
+    private var utteranceTimeout: Task<Void, Never>?
 
     /// A one-line account of the last thing that happened, for the menu.
     public private(set) var lastEvent: String = "ready"
@@ -67,23 +83,20 @@ public final class DictationController {
     public func start() throws {
         hotkey.onPress = { [weak self] in
             Diagnostics.log("hotkey", "key down")
-            Task { @MainActor in await self?.beginListening() }
+            Task { @MainActor in await self?.handlePress() }
         }
         hotkey.onRelease = { [weak self] in
-            // If this line never appears in the log, `RegisterEventHotKey` is
-            // not reporting key-up on this system and push-to-talk cannot work
-            // as built. That is the single most important unknown in M0.
             Diagnostics.log("hotkey", "key up")
-            Task { @MainActor in await self?.endListening() }
+            Task { @MainActor in await self?.handleRelease() }
         }
-        try hotkey.register()
+        try hotkey.register(configuration.hotkey)
         Diagnostics.banner([
             "transcriber: \(transcriber.identifier)",
             "model dir:   \(configuration.modelsDirectory.appendingPathComponent(configuration.modelIdentifier).path)",
             "microphone:  \(AudioCapture.hasPermission ? "granted" : "not yet granted")",
             "accessibility: \(AccessibilityPermission.isTrusted() ? "granted" : "not yet granted")",
             "language:    \(configuration.language ?? "auto-detect")",
-            "hotkey:      Control-Option-D (hold to talk)",
+            "hotkey:      \(configuration.hotkey.displayString) (\(configuration.activation.rawValue))",
         ])
 
         // F19: warm the model at launch so the first press does not pay load
@@ -115,6 +128,69 @@ public final class DictationController {
         capture.stop()
         isCapturing = false
         state = .idle
+    }
+
+    // MARK: - activation
+
+    /// Apply a new shortcut or activation mode without restarting.
+    public func apply(configuration new: Configuration) {
+        let wasListening = isCapturing
+        configuration = new
+        if case .failure(let error) = hotkey.rebind(to: new.hotkey) {
+            note("hotkey", "could not use \(new.hotkey.displayString): \(error)")
+        }
+        if wasListening { Task { await endListening() } }
+        note("settings", "shortcut \(new.hotkey.displayString), "
+           + "\(new.activation.rawValue)")
+    }
+
+    private func handlePress() async {
+        switch configuration.activation {
+        case .holdToTalk:
+            await beginListening()
+
+        case .toggle:
+            // The press is the whole signal; release means nothing.
+            if isCapturing { await endListening() } else { await beginListening() }
+
+        case .hybrid:
+            if isCapturing {
+                // Already listening, latched or not: this press stops it, and
+                // the release that follows must not start anything.
+                ignoreNextRelease = true
+                await endListening()
+            } else {
+                pressedAt = Date()
+                isLatched = false
+                await beginListening()
+            }
+        }
+    }
+
+    private func handleRelease() async {
+        switch configuration.activation {
+        case .holdToTalk:
+            await endListening()
+
+        case .toggle:
+            break
+
+        case .hybrid:
+            if ignoreNextRelease {
+                ignoreNextRelease = false
+                return
+            }
+            guard isCapturing else { return }
+            let heldMillis = Int(Date().timeIntervalSince(pressedAt ?? Date()) * 1000)
+            if heldMillis < configuration.tapThresholdMillis {
+                // A tap, not a hold. Keep listening until the next press.
+                isLatched = true
+                note("hotkey", "latched after a \(heldMillis) ms tap — "
+                   + "press \(configuration.hotkey.displayString) again to stop")
+            } else {
+                await endListening()
+            }
+        }
     }
 
     // MARK: - the dictation cycle
@@ -170,11 +246,35 @@ public final class DictationController {
                 Task { @MainActor in self?.accept(frame: frame) }
             }
             isCapturing = true
+            startUtteranceTimeout()
             note("capture", "listening")
             state = .listening
         } catch {
             note("capture", "could not start: \(error)")
             state = .failed(String(describing: error))
+        }
+    }
+
+    /// Close the microphone if one utterance runs past the cap.
+    ///
+    /// Push-to-talk bounded this with the user's hand. Toggle and hybrid do
+    /// not, so it is possible to start dictating and walk away — and a
+    /// microphone nobody remembers leaving open is the single failure the
+    /// privacy positioning cannot survive. The transcript is kept, not
+    /// discarded: the user said those words, and throwing them away would add
+    /// a second failure to the first.
+    private func startUtteranceTimeout() {
+        utteranceTimeout?.cancel()
+        let seconds = max(10, configuration.maximumUtteranceSeconds)
+        utteranceTimeout = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, self.isCapturing else { return }
+                self.note("capture", "stopped after \(seconds)s — the maximum "
+                        + "for one utterance. Nothing was discarded.")
+            }
+            await self?.endListening()
         }
     }
 
@@ -201,6 +301,9 @@ public final class DictationController {
         // an utterance during the hold — so the microphone was never closed
         // and stayed open until the app quit.
         guard isCapturing else { return }
+        isLatched = false
+        utteranceTimeout?.cancel()
+        utteranceTimeout = nil
 
         // Keep listening for one buffer period. The tap delivers 100 ms at a
         // time and `stop()` discards a partially filled buffer, so releasing

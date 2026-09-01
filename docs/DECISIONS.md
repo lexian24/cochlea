@@ -356,3 +356,99 @@ Malay.
 the default because P1's code-switching needs per-window detection and is the
 maintainer's own journey; anyone who does not switch languages should set it,
 and gets both the accuracy and the 182 ms.
+
+---
+
+## D7 — Hybrid activation: hold to talk, or tap to latch
+
+**Status:** decided and implemented.
+
+**Context.** M0 shipped push-to-talk on a hardcoded Control-Option-D. The
+maintainer's objection was specific and correct: holding a chord through a long
+paragraph is its own kind of work, and the shortcut could not be changed
+without a rebuild.
+
+**Decision.** Three activation modes — `holdToTalk`, `toggle`, `hybrid` — with
+**hybrid as the default**: hold the shortcut and it behaves exactly as M0 did;
+tap it and dictation latches until the next tap. The threshold is 400 ms.
+
+**Why hybrid rather than a mode setting.** Both behaviours are wanted, by the
+same person, minutes apart: hold for a phrase, tap for a paragraph. A mode
+setting makes the user predict which one they will need before they start
+speaking, and be wrong. Hybrid reads the intent from how the key was pressed,
+which is information the user has already supplied. The explicit modes remain
+for anyone who wants the old behaviour guaranteed.
+
+**What it costs, and the thing that had to be answered.** Push-to-talk bounded
+the microphone with the user's hand. Toggle and hybrid do not, so it becomes
+possible to start dictating and walk away — and a microphone nobody remembers
+leaving open is the one failure this project's privacy positioning cannot
+survive. So `maximumUtteranceSeconds` is not optional and defaults to five
+minutes. When it fires the transcript is kept, not discarded: the user said
+those words, and throwing them away would add a second failure to the first.
+
+The 400 ms threshold is a guess and is not yet measured against real use. It is
+a constant in one place for that reason.
+
+**Consequence.** `HotkeyBinding` moved to `CochleaCore` because `Configuration`
+persists it, and `HotkeyMonitor.rebind` exists because Carbon has no rebind
+call — an `EventHotKeyRef` is registered for one combination and unregistered
+as a unit, so tear-down and re-registration is the whole mechanism. A shortcut
+recorded in Settings is live before the window closes.
+
+---
+
+## D8 — Contextual biasing works, and the cap must be per token
+
+**Status:** measured. The mechanism is proven; the lexicon integration is not
+built yet.
+
+**Context.** M2 is the layer D1 calls "the layer that pays off first", and the
+whole argument for D5 (ASR in a Python sidecar) was that biasing needs the
+decode loop next to the lexicon. That claim had never been tested.
+
+**It works.** `mlx_whisper.decoding` applies a list of `LogitFilter` objects at
+every decode step, and hands each one the tokens generated so far — which is
+exactly what phrase-level biasing needs, since a phrase's benefit only appears
+across several steps. Measured on `whisper-small` with a synthesised sentence:
+
+| | transcript |
+|---|---|
+| unbiased | "Deploy the service with **QBeckle** and check the **ginks** logs" |
+| boost 3.0 | "…with **kubectl** and check the gink's logs" |
+| boost 6.0 | "…with **kubectl** and check the **nginx** logs" |
+
+`logit_filters` is a plain list built in `DecodingTask.__init__` with no public
+injection point, so appending to it means patching that initialiser. That is the
+one piece of coupling to mlx-whisper's internals this design accepts.
+
+**`initial_prompt` is not a biasing hook.** It conditions the context and
+competes for the 224-token prompt budget; it does not adjust token scores. Any
+design that reaches for it instead of a `LogitFilter` is reaching for the weaker
+thing because it is the documented one.
+
+**The cap must be per token, not per entry — and this is F2 with teeth.** The
+first implementation accumulated boosts (`+=`). With 25 entries sharing a
+prefix, one token reached +69 logits and the decoder emitted
+`"termnumbertermnumber termnumber…"` until it hit the token limit: a 68-character
+transcript became 1169 characters, and latency went from 298 ms to 11 seconds.
+That is not a slow filter, it is a runaway decode. Taking the maximum instead of
+the sum fixes it completely.
+
+**Measured cost, after the fix**, on a 12.8-second utterance:
+
+| lexicon entries | median | over baseline |
+|---|---|---|
+| 0 | 295 ms | — |
+| 25 | 308 ms | +5% |
+| 100 | 321 ms | +9% |
+| 400 | 375 ms | +27% |
+
+400 entries fits F18's budget with room to spare.
+
+**On over-triggering.** No false positives were observed up to boost 20, either
+for terms absent from the audio or for a deliberate near-homophone ("modal"
+against a recording saying "model"). That is a handful of synthesised samples,
+not a corpus, so it is evidence that the working point is around 6 — not
+evidence that F2 is solved. The decay, negative-signal and expiry mitigations
+F2 specifies are still required.

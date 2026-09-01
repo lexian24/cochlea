@@ -20,6 +20,52 @@ public struct Configuration: Codable, Sendable {
         public var allowsPostCorrection: Bool { self == .commitOnRelease }
     }
 
+    /// How the hotkey starts and stops dictation.
+    ///
+    /// Push-to-talk was the only option and it is wrong for long input: holding
+    /// a chord through a three-minute paragraph is its own kind of work. Toggle
+    /// fixes that and introduces a different problem, which is that the
+    /// microphone can be left open indefinitely — see `maximumUtteranceSeconds`.
+    public enum Activation: String, Codable, Sendable, CaseIterable {
+        /// Hold the key, speak, release. What M0 shipped.
+        case holdToTalk
+        /// Press once to start, press again to stop.
+        case toggle
+        /// Hold it and it behaves like push-to-talk; tap it and it latches
+        /// until the next tap. One binding, both behaviours, no mode setting to
+        /// find — which is what most dictation apps settle on.
+        case hybrid
+
+        public var explanation: String {
+            switch self {
+            case .holdToTalk:
+                return "Hold the shortcut while you speak. Releasing it ends the utterance."
+            case .toggle:
+                return "Press once to start, press again to stop."
+            case .hybrid:
+                return "Hold to talk, or tap once to keep listening until you tap again."
+            }
+        }
+    }
+
+    public var activation: Activation = .hybrid
+
+    /// Below this, a press counts as a tap rather than a hold.
+    ///
+    /// Only consulted in `.hybrid`. Long enough that a deliberate short
+    /// utterance is not mistaken for a tap, short enough that tapping does not
+    /// feel like waiting.
+    public var tapThresholdMillis: Int = 400
+
+    /// A hard bound on how long the microphone stays open in one utterance.
+    ///
+    /// Toggle and hybrid make it possible to walk away with dictation running,
+    /// which push-to-talk made physically impossible. This is the answer to
+    /// that, and it is not optional: an open microphone nobody remembers is
+    /// exactly the failure the privacy positioning cannot survive. The user is
+    /// told when it fires rather than finding a silently truncated transcript.
+    public var maximumUtteranceSeconds: Int = 300
+
     public var mode: Mode = .commitOnRelease
     /// Sourced from the catalog rather than written out, because a literal
     /// here drifted: it read "whisper-turbo", which matches no descriptor, so
@@ -44,6 +90,10 @@ public struct Configuration: Codable, Sendable {
     /// need the switching.
     public var language: String?
 
+    /// The dictation shortcut. Stored so it survives a rebuild, which the
+    /// hardcoded Control-Option-D did not.
+    public var hotkey: HotkeyBinding = .default
+
     /// F18 latency budget, in milliseconds, for a typical utterance.
     public var latencyBudgetMillis: Int = 1000
 
@@ -62,6 +112,8 @@ public struct Configuration: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case mode, modelIdentifier, keepModelResident
         case acousticRetentionEnabled, latencyBudgetMillis, language
+        case activation, tapThresholdMillis, maximumUtteranceSeconds
+        case hotkey
     }
 
     public init(from decoder: Decoder) throws {
@@ -80,6 +132,13 @@ public struct Configuration: Codable, Sendable {
         latencyBudgetMillis = try values.decodeIfPresent(
             Int.self, forKey: .latencyBudgetMillis) ?? latencyBudgetMillis
         language = try values.decodeIfPresent(String.self, forKey: .language)
+        activation = try values.decodeIfPresent(
+            Activation.self, forKey: .activation) ?? activation
+        tapThresholdMillis = try values.decodeIfPresent(
+            Int.self, forKey: .tapThresholdMillis) ?? tapThresholdMillis
+        maximumUtteranceSeconds = try values.decodeIfPresent(
+            Int.self, forKey: .maximumUtteranceSeconds) ?? maximumUtteranceSeconds
+        hotkey = try values.decodeIfPresent(HotkeyBinding.self, forKey: .hotkey) ?? hotkey
     }
 
     public init(home: URL? = nil) {
