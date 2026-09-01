@@ -121,9 +121,19 @@ def test_corrupted_adapter_is_caught_by_the_gate_and_rolled_back_automatically()
 
 
 def test_doctor_fields_are_sufficient_to_triage_a_regression():
-    """F15: adapter version, base model, config hash and eval score, all present."""
+    """F15: adapter version, base model, config hash and eval score, all present.
+
+    The holdout is marked explicitly rather than drawn by `HoldoutManager`.
+    Selection is a hash over random utterance ids, so reserving from 80 items
+    at 15% put the holdout below `gate`'s `min_holdout` of 5 about once in 211
+    runs -- the gate then correctly refused, nothing was promoted, `current`
+    returned None, and this test failed on an AttributeError that looked
+    nothing like its cause. What is under test here is which fields survive
+    promotion, so the holdout is a fixture and should not be a dice roll.
+    """
     store = CorrectionStore(); populate(store, 80)
-    HoldoutManager(store, salt="r0").reserve()
+    for row in store.all()[:20]:
+        store.mark_holdout(row["id"])
     r = AdapterRegistry()
     result = evaluate(store, PerfectTranscriber(store))
     a = r.register("postcorr", "whisper-turbo", {"lr": 1e-4, "rank": 8}, result)

@@ -145,6 +145,57 @@ final class SegmenterTests: XCTestCase {
         XCTAssertNotNil(segmenter.finish())
     }
 
+    // MARK: - what the log is allowed to claim
+
+    func testTheDecisionIsRecordedBeforeResetClearsIt() {
+        // `finish()` resets the estimate, so anything read after it reports a
+        // cleared floor of 0.0000 and the absolute-minimum threshold. The log
+        // printed exactly that during hand-testing, which is a false statement
+        // about a detector that had in fact worked correctly.
+        let segmenter = Segmenter()
+        feedRoomTone(segmenter)
+        for _ in 0..<18 { _ = segmenter.accept(frame: frame(0.25)) }
+        var finished: [Float]?
+        for i in 0..<40 where finished == nil {
+            finished = segmenter.accept(frame: frame(measuredQuietRoom[i % 5]))
+        }
+        XCTAssertNotNil(finished)
+        XCTAssertNil(segmenter.currentNoiseFloor, "reset should have cleared it")
+        XCTAssertGreaterThan(segmenter.decisionNoiseFloor ?? 0, 0.01,
+                             "the decision floor must survive the reset")
+        XCTAssertGreaterThan(segmenter.decisionThreshold, 0.0386)
+        XCTAssertGreaterThan(segmenter.decisionSpeechSeconds, 1.0)
+    }
+
+    func testSilenceAndABriefTapAreDistinguishable() {
+        // Holding the key through silence after an utterance already finished
+        // is the normal end of a dictation, not a mistake, and calling both
+        // "an accidental tap" told the user the wrong thing.
+        let silent = Segmenter()
+        for i in 0..<60 { _ = silent.accept(frame: frame(measuredQuietRoom[i % 5])) }
+        _ = silent.finish()
+        XCTAssertEqual(silent.decisionSpeechSeconds, 0,
+                       "room tone must not be charged as speech")
+
+        let tapped = Segmenter()
+        feedRoomTone(tapped)
+        _ = tapped.accept(frame: frame(0.3))        // 0.1 s, under the 0.25 s minimum
+        _ = tapped.finish()
+        XCTAssertGreaterThan(tapped.decisionSpeechSeconds, 0)
+        XCTAssertLessThan(tapped.decisionSpeechSeconds, 0.25)
+    }
+
+    func testTheFirstFrameIsNotAutomaticallySpeech() {
+        // With no estimate the threshold falls back to the absolute floor,
+        // which ordinary room tone clears -- so the first frame of every
+        // utterance counted as speech, charging 0.1 s of phantom speech
+        // against the accidental-tap guard.
+        let segmenter = Segmenter()
+        _ = segmenter.accept(frame: frame(measuredQuietRoom[0]))
+        _ = segmenter.finish()
+        XCTAssertEqual(segmenter.decisionSpeechSeconds, 0)
+    }
+
     func testResetRemeasuresTheRoom() {
         // The user may have moved, put headphones on, or closed a window.
         let segmenter = Segmenter()

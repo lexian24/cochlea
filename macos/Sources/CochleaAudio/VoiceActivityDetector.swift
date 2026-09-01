@@ -124,6 +124,16 @@ public final class Segmenter {
     public var currentThreshold: Float { vad.threshold(noiseFloor: noiseFloor.level ?? 0) }
     public var currentNoiseFloor: Float? { noiseFloor.level }
 
+    /// What it believed at the moment it decided, which is the useful number
+    /// and not the same one: `finish()` resets the estimate, so anything read
+    /// afterwards reports a cleared floor of 0.0000 and a threshold at the
+    /// absolute minimum. The log said exactly that, and it was not true.
+    public private(set) var decisionNoiseFloor: Float?
+    public private(set) var decisionThreshold: Float = 0
+    /// How much speech the finished utterance actually contained. Separates
+    /// "held the key and said nothing" from "said something too brief".
+    public private(set) var decisionSpeechSeconds: Double = 0
+
     public init(vad: VoiceActivityDetector = .init(), sampleRate: Double = 16_000) {
         self.vad = vad
         self.sampleRate = sampleRate
@@ -136,6 +146,14 @@ public final class Segmenter {
         let duration = Double(frame.count) / sampleRate
         samples.append(contentsOf: frame)
         let level = VoiceActivityDetector.rms(frame)
+        // Seed from the first frame before judging it. With no estimate the
+        // threshold falls back to the absolute floor, which ordinary room tone
+        // clears, so the first frame of every utterance counted as speech --
+        // 0.1 s of phantom speech charged against the accidental-tap guard,
+        // and a hold through pure silence that reported having heard
+        // something. Seeding first costs nothing: a frame cannot be speech
+        // relative to itself.
+        if noiseFloor.level == nil { noiseFloor.observe(level, wasSpeech: false) }
         let speech = level >= vad.threshold(noiseFloor: noiseFloor.level ?? 0)
         noiseFloor.observe(level, wasSpeech: speech)
         if speech {
@@ -151,6 +169,11 @@ public final class Segmenter {
     /// Ends the utterance now, as when the user releases the hotkey.
     @discardableResult
     public func finish() -> [Float]? {
+        // Captured before the reset in `defer`, or the caller can only ever
+        // read the cleared values.
+        decisionNoiseFloor = noiseFloor.level
+        decisionThreshold = currentThreshold
+        decisionSpeechSeconds = speechSeconds
         defer { reset() }
         guard speechSeconds >= vad.parameters.minimumSpeechSeconds else { return nil }
         return samples

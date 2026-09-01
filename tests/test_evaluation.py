@@ -54,11 +54,34 @@ def test_a_different_salt_selects_a_different_share():
     assert r0 != r1
 
 
-def test_holdout_fraction_is_approximately_honoured():
+def test_the_selector_honours_its_fraction():
+    """F16, on fixed ids so the answer cannot drift.
+
+    This asserted `0.10 < len(reserved) / 400 < 0.20` over 400 random uuids.
+    That is Binomial(400, 0.15) against those bounds: measured over 20000
+    trials it falls outside them 116 times, about 1 run in 172, and CI runs
+    this five times a push. sha256 is fixed, so on fixed ids the count is a
+    constant and the test either always passes or always fails.
+    """
+    store = CorrectionStore()
+    ids = [f"utt-{i:05d}" for i in range(400)]
+    h = HoldoutManager(store, fraction=0.15, salt="r0")
+    assert sum(h._selected(i) for i in ids) == 61        # 0.1525
+
+
+def test_reserve_marks_exactly_what_the_selector_chooses():
+    """The integration the test above used to cover, without the dice.
+
+    Whatever ids the store happens to generate, `reserve` must mark precisely
+    the ones `_selected` accepts -- which is true of any store, so there is
+    nothing probabilistic left to assert.
+    """
     store = CorrectionStore()
     populate(store, 400)
-    reserved = HoldoutManager(store, fraction=0.15, salt="r0").reserve()
-    assert 0.10 < len(reserved) / 400 < 0.20
+    h = HoldoutManager(store, fraction=0.15, salt="r0")
+    expected = {r["id"] for r in store.all() if h._selected(r["id"])}
+    assert set(h.reserve()) == expected
+    assert {r["id"] for r in store.holdout_set()} == expected
 
 
 def test_rotation_reserves_more_without_releasing_the_old():

@@ -45,6 +45,14 @@ public final class DictationController {
     public private(set) var lastEvent: String = "ready"
     public var onEventChange: ((String) -> Void)?
 
+    /// The detector's state at the moment it decided, not afterwards.
+    private func describeDecision() -> String {
+        let floor = segmenter.decisionNoiseFloor
+            .map { String(format: "%.4f", $0) } ?? "unmeasured"
+        return "floor \(floor), threshold "
+             + "\(String(format: "%.4f", segmenter.decisionThreshold))"
+    }
+
     private func note(_ category: String, _ message: String) {
         Diagnostics.log(category, message)
         lastEvent = message
@@ -170,9 +178,8 @@ public final class DictationController {
         // ends it early if the user stops speaking and holds the key.
         if let finished = segmenter.accept(frame: frame) {
             Diagnostics.log("vad", "silence ended the utterance while the key "
-                + "was still held (\(finished.count) samples, floor "
-                + "\(String(format: "%.4f", segmenter.currentNoiseFloor ?? 0)), "
-                + "threshold \(String(format: "%.4f", segmenter.currentThreshold)))")
+                + "was still held (\(finished.count) samples, "
+                + describeDecision() + ")")
             Task { await transcribeAndType(finished) }
         }
     }
@@ -186,13 +193,19 @@ public final class DictationController {
         isCapturing = false
         capture.stop()
         guard let samples = segmenter.finish() else {
-            note("vad", "utterance too short to transcribe (an accidental tap)")
+            // Two different things, and calling both "an accidental tap" was
+            // wrong: holding the key through silence after VAD already
+            // finished an utterance is the expected end of a normal dictation,
+            // not a mistake.
+            let heard = segmenter.decisionSpeechSeconds
+            note("vad", heard == 0
+                ? "nothing audible while the key was held — \(describeDecision())"
+                : "only \(Int(heard * 1000)) ms of speech, discarded as an "
+                  + "accidental tap — \(describeDecision())")
             state = .idle
             return
         }
-        Diagnostics.log("vad", "noise floor "
-            + "\(String(format: "%.4f", segmenter.currentNoiseFloor ?? 0)), threshold "
-            + "\(String(format: "%.4f", segmenter.currentThreshold))")
+        Diagnostics.log("vad", describeDecision())
         Diagnostics.log("capture", "captured \(samples.count) samples "
                       + "(\(String(format: "%.2f", Double(samples.count) / 16_000))s)")
         await transcribeAndType(samples)

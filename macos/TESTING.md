@@ -90,7 +90,7 @@ open questions.
 | **T3** injection | **Passes.** TextEdit, browser and VS Code, nothing executed. |
 | **T4** long text | **Passes.** A 28.6 s paragraph, 398 characters, no truncation — the 16-unit chunking is fine. |
 | **T7** latency | **Passes.** 383–441 ms warm, against a 1000 ms budget. A 28.6 s utterance cost 1016 ms; Whisper pads to a 30 s window, so that is one window's price, not a per-second one. |
-| **T5** mic closes | **Failed, fixed, needs re-testing.** See below. |
+| **T5** VAD / mic closes | **Passes after a fix.** Silence now ends the utterance mid-hold and the text is typed before release. See below. |
 
 Two things that test found, both fixed:
 
