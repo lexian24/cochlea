@@ -193,6 +193,18 @@ signed app is granted once.
 6. **Attach the `.dmg` to the release**, then set `version`, `sha256` and the
    URL in [`Casks/cochlea.rb`](../Casks/cochlea.rb) and drop `sha256 :no_check`.
 
+   Note that Homebrew 6 refuses to load a cask from a third-party tap until it
+   is trusted, so the install line is two commands, not one:
+
+   ```sh
+   brew tap lexian24/cochlea https://github.com/lexian24/cochlea
+   brew trust lexian24/cochlea
+   brew install --cask cochlea
+   ```
+
+   Getting into `homebrew-cask` proper removes that step, and additionally
+   requires meeting their notability threshold.
+
 7. In CI, the certificate goes in as a base64 secret and is imported into a
    temporary keychain. Do not sign from a developer's laptop for a public
    release: the artifact should be reproducible from the tag.
