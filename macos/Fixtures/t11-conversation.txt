@@ -1,0 +1,33 @@
+[2026-08-24, 09:12:04] Lexian: morning, did the eval gate pass on the nightly run
+[2026-08-24, 09:13:41] Wei Ming: not yet, still queued behind the kubectl rollout
+[2026-08-24, 09:14:02] Lexian: ok. I pushed the mlx-tune branch last night, the adapter registry needed a version bump
+[2026-08-24, 09:14:55] Wei Ming: which registry
+[2026-08-24, 09:15:20] Lexian: the adapter registry in cochlea, the one that refuses to promote without the eval gate
+[2026-08-24, 09:16:03] Wei Ming: got it
+[2026-08-24, 09:41:17] Lexian: nginx is throwing 502s again on the staging box
+[2026-08-24, 09:41:52] Lexian: check the nginx logs before you restart anything, last time we lost the trace
+[2026-08-24, 09:43:10] Wei Ming: on it
+[2026-08-24, 09:58:33] Lexian: kubectl apply fixed it. the deployment manifest had the wrong image tag
+[2026-08-24, 10:02:14] Lexian: can you review the pull request when the eval gate is green
+[2026-08-24, 10:03:40] Wei Ming: sure, send the link
+[2026-08-24, 11:20:09] Lexian: also whisper-small is meeting the latency budget on my M2 but large-v3-turbo is not
+[2026-08-24, 11:21:55] Wei Ming: how far off
+[2026-08-24, 11:22:31] Lexian: about 2x. large-v3-turbo comes in at 2.06 seconds, whisper-small at 0.66
+[2026-08-24, 11:24:02] Lexian: so I am pinning whisper-small in the model catalog for now
+[2026-08-24, 14:05:12] Lexian: lah, the metaphone backend collapsed knew and no again
+[2026-08-24, 14:06:48] Wei Ming: I thought we fixed that
+[2026-08-24, 14:07:19] Lexian: we did for the homophone table, but the orthography check still uses metaphone
+[2026-08-24, 14:09:02] Lexian: I will move it to an explicit table lah, phonetics cannot decide this
+[2026-08-24, 15:31:44] Lexian: eval gate finally green. adapter registry promoted v4
+[2026-08-24, 15:33:10] Wei Ming: nice
+[2026-08-24, 15:40:26] Lexian: running kubectl apply on staging now, then I will check the nginx logs
+[2026-08-25, 08:50:03] Lexian: the eval gate caught a regression overnight and rolled back automatically
+[2026-08-25, 08:52:41] Wei Ming: which adapter
+[2026-08-25, 08:53:15] Lexian: postcorr v5. entity error rate went up on the holdout so it never promoted
+[2026-08-25, 09:10:22] Lexian: that is exactly what the eval gate is for, so I am not worried la
+[2026-08-25, 09:12:40] Lexian: no need to revert la, the gate already did it
+[2026-08-25, 09:30:57] Lexian: pull request is up for the mlx-tune fix if you want to look
+[2026-08-25, 10:11:38] Lexian: also I redacted my email from the export, it should show up as a placeholder not as lcheo001@e.ntu.edu.sg
+[2026-08-25, 11:02:14] Lexian: whisper-small again on the AirPods mic, it heard deployment failed as deployment fell
+[2026-08-25, 11:04:30] Wei Ming: narrowband audio, expected
+[2026-08-25, 11:05:52] Lexian: yeah. still, kubectl and nginx come out right now that biasing is on

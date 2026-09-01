@@ -74,12 +74,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // closes. `apply` rebinds the hotkey and swaps activation mode without
         // a restart.
         let settings = SettingsWindowController(configuration: configuration) { [weak controller, weak menuBar] updated in
-            controller?.apply(configuration: updated)
-            menuBar?.describeShortcut(updated.hotkey.displayString,
-                                      activation: updated.activation.rawValue,
-                                      fix: updated.fixHotkey.displayString)
+            guard let controller else {
+                return DictationController.ApplyResult(effective: updated, problems: [])
+            }
+            let result = controller.apply(configuration: updated)
+            // The menu names what is actually registered, not what was asked
+            // for -- otherwise a rejected shortcut is advertised in the one
+            // place a user goes to check what to press.
+            menuBar?.describeShortcut(result.effective.hotkey.displayString,
+                                      activation: result.effective.activation.rawValue,
+                                      fix: result.effective.fixHotkey.displayString)
+            return result
         }
         menuBar.onOpenSettings = { settings.show() }
+        menuBar.onTeachWords = { settings.show(selecting: .learning) }
+
+        // Opens Settings at launch, so the window can be looked at without a
+        // person clicking the menu bar. The layout is the one part of this app
+        // that cannot be checked any other way -- there is no snapshot test
+        // for it, and the machine it is developed on cannot run XCTest at all.
+        if let pane = ProcessInfo.processInfo.environment["COCHLEA_OPEN_SETTINGS"] {
+            let panes: [String: SettingsWindowController.Pane] = [
+                "dictation": .dictation, "shortcuts": .shortcuts,
+                "learning": .learning, "privacy": .privacy,
+            ]
+            settings.show(selecting: panes[pane.lowercased()] ?? .dictation)
+        }
 
         // Fix-last (SPEC §1): the primary and, for now, only way a correction
         // is captured. Nothing watches the user's document, so a fix made

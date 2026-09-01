@@ -18,34 +18,55 @@ import SwiftUI
 final class SettingsWindowController {
 
     private var window: NSWindow?
-    private let onChange: (Configuration) -> Void
+    private var tabs: SettingsTabController?
+    private var model: SettingsModel?
+    private let onChange: (Configuration) -> DictationController.ApplyResult
     private var configuration: Configuration
 
-    init(configuration: Configuration, onChange: @escaping (Configuration) -> Void) {
+    init(configuration: Configuration,
+         onChange: @escaping (Configuration) -> DictationController.ApplyResult) {
         self.configuration = configuration
         self.onChange = onChange
     }
 
-    func show() {
+    func show(selecting pane: Pane? = nil) {
         if let window {
+            if let pane { tabs?.selectedTabViewItemIndex = pane.rawValue }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
         let model = SettingsModel(configuration: configuration) { [weak self] updated in
-            self?.configuration = updated
-            self?.onChange(updated)
+            guard let self else { return nil }
+            let result = onChange(updated)
+            configuration = result.effective
+            return result
         }
-        let hosting = NSHostingController(rootView: SettingsView(model: model))
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "cochlea Settings"
+        self.model = model
+        // An `NSTabViewController` in toolbar style, not a SwiftUI `TabView`.
+        //
+        // The difference is not decoration: this is the control macOS itself
+        // uses for every Settings window, so it gets the toolbar with icons
+        // above the title, the pane-name-as-window-title behaviour, and the
+        // resize-to-fit-the-pane animation for free. A `TabView` inside a
+        // plain window draws boxed tabs that belong in a 2010 inspector panel
+        // and look like an app that has not seen a Mac.
+        let tabs = SettingsTabController(model: model)
+        let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 620, height: 460))
+        window.setContentSize(NSSize(width: 580, height: 440))
         window.center()
         window.isReleasedWhenClosed = false
         self.window = window
+        self.tabs = tabs
+        if let pane { tabs.selectedTabViewItemIndex = pane.rawValue }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Which pane to open on. Ordered as the toolbar is.
+    enum Pane: Int {
+        case dictation, shortcuts, learning, privacy
     }
 }
 
@@ -55,14 +76,36 @@ final class SettingsModel: ObservableObject {
     @Published var configuration: Configuration { didSet { persist() } }
     @Published var problem: String?
 
-    private let onChange: (Configuration) -> Void
+    private let onChange: (Configuration) -> DictationController.ApplyResult?
+    /// Guards the write-back below from re-entering `persist`.
+    private var isReverting = false
 
-    init(configuration: Configuration, onChange: @escaping (Configuration) -> Void) {
+    init(configuration: Configuration,
+         onChange: @escaping (Configuration) -> DictationController.ApplyResult?) {
         self.configuration = configuration
         self.onChange = onChange
     }
 
     private func persist() {
+        guard !isReverting else { return }
+        let result = onChange(configuration)
+
+        // Applied first, saved second, and the order matters: a shortcut
+        // another app owns is rejected by the system, and saving the rejected
+        // one would retry it at every launch while the app quietly ran on the
+        // old shortcut. What gets written is what actually took effect.
+        if let result, !result.isClean {
+            problem = result.problems.joined(separator: "\n")
+            if result.effective.hotkey != configuration.hotkey
+                || result.effective.fixHotkey != configuration.fixHotkey {
+                isReverting = true
+                configuration = result.effective
+                isReverting = false
+            }
+        } else {
+            problem = nil
+        }
+
         do {
             try configuration.save()
         } catch {
@@ -70,26 +113,58 @@ final class SettingsModel: ObservableObject {
             // user needs to know now, not on next launch when it has reverted.
             problem = "Could not save settings: \(error.localizedDescription)"
         }
-        onChange(configuration)
     }
 }
 
-struct SettingsView: View {
-    @ObservedObject var model: SettingsModel
+/// The four panes, in the system's own Settings chrome.
+@MainActor
+final class SettingsTabController: NSTabViewController {
 
-    var body: some View {
-        TabView {
-            DictationSettings(model: model)
-                .tabItem { Label("Dictation", systemImage: "mic") }
-            ShortcutSettings(model: model)
-                .tabItem { Label("Shortcuts", systemImage: "command") }
-            LearningSettings(model: model)
-                .tabItem { Label("Learning", systemImage: "brain") }
-            PrivacySettings(model: model)
-                .tabItem { Label("Privacy", systemImage: "lock") }
-        }
-        .padding(20)
-        .frame(width: 620, height: 460)
+    init(model: SettingsModel) {
+        super.init(nibName: nil, bundle: nil)
+        tabStyle = .toolbar
+        add(DictationSettings(model: model), "Dictation", "waveform")
+        add(ShortcutSettings(model: model), "Shortcuts", "command")
+        add(LearningSettings(model: model), "Learning", "sparkles")
+        add(PrivacySettings(model: model), "Privacy", "hand.raised")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not from a nib") }
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        retitle()
+    }
+
+    override func tabView(_ tabView: NSTabView, didSelect item: NSTabViewItem?) {
+        super.tabView(tabView, didSelect: item)
+        retitle()
+    }
+
+    /// The window is named after the pane, as every Settings window is. A
+    /// static "cochlea Settings" wastes the one piece of chrome that could say
+    /// where you are.
+    private func retitle() {
+        let item = tabViewItems.indices.contains(selectedTabViewItemIndex)
+            ? tabViewItems[selectedTabViewItemIndex] : nil
+        view.window?.title = item.map { "cochlea — \($0.label)" } ?? "cochlea"
+    }
+
+    private func add<Pane: View>(_ pane: Pane, _ label: String, _ symbol: String) {
+        // A fixed width, and a height between bounds: the toolbar style
+        // resizes the window to each pane, so a pane that needs 480pt gets it
+        // and one that needs 300 does not leave a void. The minimum stops a
+        // short pane from collapsing to a sliver; the maximum stops a long one
+        // from running off a laptop screen, and `Form` scrolls past it.
+        let sized = pane
+            .frame(width: 560)
+            .frame(minHeight: 320, maxHeight: 560)
+        let hosting = NSHostingController(rootView: sized)
+        let item = NSTabViewItem(viewController: hosting)
+        item.label = label
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        addTabViewItem(item)
     }
 }
 
@@ -212,8 +287,11 @@ struct ShortcutSettings: View {
                     }
                     .frame(width: 150, height: 26)
                 }
-                if let rejection {
-                    Text(rejection).font(.callout).foregroundStyle(.red)
+                if let message = rejection ?? model.problem {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Text("""
                     Click a field, then press the combination you want. It \

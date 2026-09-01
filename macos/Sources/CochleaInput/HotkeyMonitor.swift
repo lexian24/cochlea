@@ -152,11 +152,24 @@ public enum HotkeyError: Error, CustomStringConvertible {
     case handlerInstallFailed(OSStatus)
     case registrationFailed(OSStatus)
 
+    /// Carbon's "that combination is already registered".
+    ///
+    /// By far the most common failure and the only one a user can act on, so
+    /// it gets a sentence of its own rather than a status code. Everything
+    /// else keeps the number, because a status nobody has seen before is more
+    /// useful reported than guessed at.
+    private static let alreadyTaken: OSStatus = -9878   // eventHotKeyExistsErr
+
     public var description: String {
         switch self {
-        case .handlerInstallFailed(let s): return "could not install hotkey handler (\(s))"
-        case .registrationFailed(let s):
-            return "could not register the hotkey (\(s)); another app may already own it"
+        case .handlerInstallFailed(let status):
+            return "could not install the hotkey handler (\(status))"
+        case .registrationFailed(let status) where status == Self.alreadyTaken:
+            return "Something else on this Mac already uses that combination. "
+                 + "Try another, or free it up in System Settings › Keyboard › "
+                 + "Keyboard Shortcuts."
+        case .registrationFailed(let status):
+            return "macOS refused that combination (error \(status))."
         }
     }
 }

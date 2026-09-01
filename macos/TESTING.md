@@ -92,10 +92,10 @@ open questions.
 | **T7** latency | **Passes.** 383–441 ms warm, against a 1000 ms budget. A 28.6 s utterance cost 1016 ms; Whisper pads to a 30 s window, so that is one window's price, not a per-second one. |
 | **T5** VAD / mic closes | **Passes after a fix.** Silence now ends the utterance mid-hold and the text is typed before release. See below. |
 | **T6** device change | **Passes after a fix.** Switching the input device to AirPods mid-session is detected, the graph is rebuilt on the next press, and dictation continues. Previously it hung the app. |
+| **T9** streaming | **Passes.** Text arrives phrase by phrase while you are still talking. |
+| **T10** activation and rebinding | **Passes.** Hold, tap-to-latch and rebinding all work; rebinding to a shortcut already in use failed silently in the window, which is fixed. |
 
-Every core test above now passes on this machine. **T8 through T12 have never
-been run** — T9 through T12 cover behaviour that did not exist when the first
-hand-test happened.
+**T8, T11, T12 and T13 have never been run.**
 
 Two observations that are not bugs but are worth knowing:
 
@@ -328,17 +328,24 @@ Also new, also never hand-tested.
 
 The path the CLI already proves, done entirely by clicking. Never hand-tested.
 
-Make a file to import first — a chat export, or just paste a few of your own
-messages into a text file. Something with words you actually use that a
-recogniser would get wrong.
+There is a file ready for this: **`macos/Fixtures/t11-conversation.txt`**. It
+is a fabricated two-person chat in WhatsApp export format, written so every
+path this test cares about actually fires — two speakers, technical terms
+Whisper gets wrong (`kubectl`, `nginx`, `mlx-tune`, `large-v3-turbo`),
+phrases that recur (`eval gate`, `adapter registry`), one word spelled two
+ways (`la` / `lah`), and an email address that must come out redacted.
 
-1. Menu bar icon → **Settings… → Learning**. With nothing imported it should
-   say so plainly rather than showing an empty table.
-2. **Import from a file…** and choose your file.
-3. **If it is a conversation**, cochlea should stop and ask *which speaker is
-   you*, listing everyone it found with line counts. It must not import
-   without an answer — learning the other person's vocabulary is the failure
-   this question exists to prevent.
+Your own chat export works too, and is the more interesting test. Anything
+your app can save as text will do.
+
+1. Menu bar icon → **Teach it your words…** (or Settings → Learning). With
+   nothing imported it should say so plainly rather than showing an empty
+   table.
+2. **Import from a file…** and choose `macos/Fixtures/t11-conversation.txt`.
+3. cochlea should stop and ask *which speaker is you*, offering **Lexian (24
+   lines)** and **Wei Ming (10 lines)**. It must not import without an
+   answer — learning the other person's vocabulary is the failure this
+   question exists to prevent. Pick Lexian.
 4. A sheet should list what it found: phrases separated from words, each with
    how often you wrote it. **Nothing has been saved at this point.** Cancel
    here and check the Learning tab is still empty.
@@ -354,6 +361,12 @@ Quit and relaunch the app, dictate a sentence containing one of the imported
 words, and see whether it comes out right. The helper loads the lexicon at
 startup, so a relaunch is required — if that turns out to be annoying in
 practice, say so, because it is fixable.
+
+With the fixture, the proposal should contain `kubectl`, `nginx`,
+`whisper-small`, `mlx-tune`, `large-v3-turbo` and `metaphone`, plus the two
+phrases `eval gate` and `adapter registry`. It should **not** contain
+`narrowband` — that word is only in Wei Ming's lines, and its presence would
+mean invariant 3 is broken. No email address should appear anywhere.
 
 Worth reporting either way:
 
@@ -423,6 +436,39 @@ One thing to watch specifically: `⌃⌥D` and `⌃⌥F` are registered together
 **Pressing `⌃⌥F` must not start dictation**, and pressing `⌃⌥D` must not open
 the panel. If they cross over, the hotkey identity is not being read
 correctly.
+
+---
+
+## T13 — The menu bar and Settings, as things to look at
+
+Not correctness, but the app has exactly one visible surface and this is it.
+
+1. **The icon is the cochlea mark**, not a microphone. Check it reads clearly
+   in your menu bar, and that you can pick it out from the other icons up
+   there.
+2. **Dictate and watch it.** The icon should invert — the mark knocked out of
+   a filled block — for as long as the microphone is open, and go back to the
+   plain mark when it closes. That change is deliberately the largest one in
+   the set, because "is my mic open" is the question this app cannot afford to
+   answer subtly.
+3. **Open the menu.** It should read as three labelled groups (Status,
+   Shortcuts, Model), with the state on a coloured dot, the shortcuts in
+   monospace so they line up, and actions with icons below a separator.
+4. **Open Settings.** It should look like a macOS Settings window — a toolbar
+   of four icons across the top, the window title naming the pane you are on,
+   and the window resizing as you move between panes.
+5. **Bind a shortcut something else already owns** (⌘Space is a good one).
+   It should now say so in red, in the window, and put the working shortcut
+   back — the field must not keep showing a combination that is not
+   registered. Check the menu bar still names the shortcut that actually
+   works, and that it survives a relaunch.
+
+`COCHLEA_OPEN_SETTINGS=learning ./build/cochlea.app/Contents/MacOS/cochlea`
+opens straight to a pane if you want to look at one without clicking.
+
+Say what looks wrong. Cramped spacing, text that wraps badly, a pane that is
+too tall or too empty — all of it is worth reporting, because none of it can
+be seen from here.
 
 ---
 

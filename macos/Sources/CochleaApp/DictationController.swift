@@ -188,20 +188,47 @@ public final class DictationController {
 
     // MARK: - activation
 
+    /// What actually took effect, and anything that did not.
+    ///
+    /// A shortcut can be rejected — most often because another app already
+    /// owns it — and the settings window has to hear about that. It used to
+    /// only reach the log: the field kept the combination the user typed, the
+    /// config saved it, and the app went on using the old one. Worse, the
+    /// rejected binding was then retried at every launch, so the disagreement
+    /// was permanent and invisible.
+    public struct ApplyResult {
+        /// The configuration actually in force, which is not the one passed in
+        /// when something was rejected. The caller should write this back.
+        public let effective: Configuration
+        /// One sentence per thing that did not take, for the user.
+        public let problems: [String]
+
+        public var isClean: Bool { problems.isEmpty }
+    }
+
     /// Apply a new shortcut or activation mode without restarting.
-    public func apply(configuration new: Configuration) {
+    @discardableResult
+    public func apply(configuration new: Configuration) -> ApplyResult {
         let wasListening = isCapturing
-        configuration = new
+        var effective = new
+        var problems: [String] = []
+
         if case .failure(let error) = hotkey.rebind(.dictate, to: new.hotkey) {
-            note("hotkey", "could not use \(new.hotkey.displayString): \(error)")
+            problems.append("\(new.hotkey.displayString) could not be used for "
+                          + "dictation. \(error)")
+            effective.hotkey = hotkey.bindings[.dictate] ?? configuration.hotkey
         }
         if case .failure(let error) = hotkey.rebind(.fixLast, to: new.fixHotkey) {
-            note("hotkey", "could not use \(new.fixHotkey.displayString) "
-               + "for fixing: \(error)")
+            problems.append("\(new.fixHotkey.displayString) could not be used "
+                          + "for fixing. \(error)")
+            effective.fixHotkey = hotkey.bindings[.fixLast] ?? configuration.fixHotkey
         }
+        configuration = effective
         if wasListening { Task { await endListening() } }
-        note("settings", "shortcut \(new.hotkey.displayString), "
-           + "\(new.activation.rawValue)")
+        note("settings", problems.isEmpty
+            ? "shortcut \(effective.hotkey.displayString), \(effective.activation.rawValue)"
+            : problems.joined(separator: " "))
+        return ApplyResult(effective: effective, problems: problems)
     }
 
     private func handlePress() async {
