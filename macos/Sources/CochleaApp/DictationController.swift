@@ -120,7 +120,15 @@ public final class DictationController {
     // MARK: - the dictation cycle
 
     private func beginListening() async {
-        guard !isCapturing else { return }
+        // Logged rather than returning in silence. When the audio graph hung
+        // on a stale device, three key presses produced nothing at all in the
+        // log — no error, no timing line, no clue whether the press had been
+        // dropped, ignored, or swallowed. An early return that says nothing is
+        // indistinguishable from a crash from the outside.
+        guard !isCapturing else {
+            Diagnostics.log("hotkey", "press ignored — already capturing")
+            return
+        }
         let pressed = Date()
         defer {
             Diagnostics.log("timing", "key down to listening: "
@@ -169,6 +177,9 @@ public final class DictationController {
             state = .failed(String(describing: error))
         }
     }
+
+    /// Whether a press is currently being served, for tests and diagnostics.
+    public var isListening: Bool { isCapturing }
 
     private func accept(frame: [Float]) {
         // Frames already in flight when capture stopped are not part of any

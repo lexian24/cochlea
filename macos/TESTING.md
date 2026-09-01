@@ -109,6 +109,15 @@ Two things that test found, both fixed:
   floor with speech and loses the whole utterance, which is worse than the bug
   being fixed. The hangover went from 0.6 s to 1.5 s, since 0.6 s is shorter
   than a person pausing to think.
+- **Connecting AirPods stopped dictation completely (T6).** `AVAudioEngine`
+  binds to the input device it was built against, and nothing observed
+  `AVAudioEngineConfigurationChange`, so the engine held a reference to
+  hardware that no longer existed and `start()` blocked forever — on the main
+  actor, which took the app with it. The tell was three `[hotkey] key down`
+  lines with no `[audio]`, no `[capture]` and no `[timing]` after them: that
+  last one is in a `defer`, so its absence means the function never returned.
+  The graph is now rebuilt when the device changes, and an early return logs
+  instead of vanishing.
 - **An English sentence transcribed as Malay.** Whisper detects language from
   the first window, and a clipped window is read as whatever it most resembles
   — then the *whole* window is mistranscribed, not just the missing part.

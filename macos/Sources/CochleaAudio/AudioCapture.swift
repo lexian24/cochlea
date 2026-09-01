@@ -25,10 +25,20 @@ public final class AudioCapture {
 
     public static let targetSampleRate: Double = 16_000
 
-    private let engine = AVAudioEngine()
+    /// Replaced, not reused, whenever the hardware changes underneath it.
+    private var engine = AVAudioEngine()
     private var converter: AVAudioConverter?
     private let outputFormat: AVAudioFormat
     private var onFrame: (([Float]) -> Void)?
+    private var observer: NSObjectProtocol?
+
+    /// Set from the notification queue, read on the main actor.
+    private let stateLock = NSLock()
+    private var _needsRebuild = false
+    private var needsRebuild: Bool {
+        get { stateLock.lock(); defer { stateLock.unlock() }; return _needsRebuild }
+        set { stateLock.lock(); _needsRebuild = newValue; stateLock.unlock() }
+    }
 
     public init() {
         // swiftlint:disable:next force_unwrapping
@@ -36,6 +46,46 @@ public final class AudioCapture {
                                      sampleRate: Self.targetSampleRate,
                                      channels: 1,
                                      interleaved: false)!
+
+        // AVAudioEngine binds to the input device it was built against. When
+        // that device goes away — AirPods connecting, an interface unplugged —
+        // macOS posts this and expects the graph rebuilt. Nothing listened, so
+        // the engine kept a reference to hardware that no longer existed and
+        // `start()` blocked forever on the next press. Because that call runs
+        // on the main actor, the whole app went with it: the hotkey still
+        // logged key-down from the Carbon handler while every task queued
+        // behind a main actor that was never coming back.
+        observer = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: nil, queue: nil
+        ) { [weak self] _ in
+            self?.needsRebuild = true
+            Diagnostics.log("audio", "input device changed; the graph will be "
+                          + "rebuilt on the next press")
+        }
+    }
+
+    deinit {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+    }
+
+    /// Whether a device change is pending. Readable so the wiring can be
+    /// tested on a machine with no microphone, which is every CI runner.
+    public var hasPendingRebuild: Bool { needsRebuild }
+
+    /// Throw away the graph and build a clean one.
+    ///
+    /// Cheaper than it looks and much safer than reusing: the expensive part
+    /// of the first `inputNode` access is the audio HAL warming up, which is
+    /// process-wide and survives a new engine.
+    private func rebuildIfNeeded() {
+        guard needsRebuild else { return }
+        needsRebuild = false
+        engine.stop()
+        engine.reset()
+        engine = AVAudioEngine()
+        converter = nil
+        Diagnostics.log("audio", "graph rebuilt for the current input device")
     }
 
     /// Whether the microphone is already granted. Never prompts, so it is
@@ -62,6 +112,7 @@ public final class AudioCapture {
     @discardableResult
     public func prewarm() -> Bool {
         guard Self.hasPermission else { return false }
+        rebuildIfNeeded()
         let began = Date()
         _ = engine.inputNode.outputFormat(forBus: 0)
         Diagnostics.log("audio", "graph prewarmed in "
@@ -84,6 +135,7 @@ public final class AudioCapture {
             throw CaptureError.permissionDenied
         }
         self.onFrame = onFrame
+        rebuildIfNeeded()
 
         // Timed per phase: audio taken before the microphone is actually open
         // is audio the user spoke and lost, so any delay here clips the start
@@ -116,8 +168,15 @@ public final class AudioCapture {
     }
 
     public func stop() {
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        // Guarded: after the input device disappears, touching the old node
+        // is exactly what hangs, and stopping is the one path that must
+        // always work — it is how the microphone gets closed.
+        if !needsRebuild {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+        } else {
+            engine.stop()
+        }
         onFrame = nil
     }
 
