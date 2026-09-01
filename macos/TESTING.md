@@ -91,8 +91,26 @@ open questions.
 | **T4** long text | **Passes.** A 28.6 s paragraph, 398 characters, no truncation — the 16-unit chunking is fine. |
 | **T7** latency | **Passes.** 383–441 ms warm, against a 1000 ms budget. A 28.6 s utterance cost 1016 ms; Whisper pads to a 30 s window, so that is one window's price, not a per-second one. |
 | **T5** VAD / mic closes | **Passes after a fix.** Silence now ends the utterance mid-hold and the text is typed before release. See below. |
+| **T6** device change | **Passes after a fix.** Switching the input device to AirPods mid-session is detected, the graph is rebuilt on the next press, and dictation continues. Previously it hung the app. |
 
-Two things that test found, both fixed:
+Every core test now passes on this machine. **T8 (main-actor traffic under
+load) is the only one never run.**
+
+Two observations that are not bugs but are worth knowing:
+
+- **Capture is now essentially lossless.** With the drain, a 3.374 s hold
+  captured 3.37 s. Before it lost about 170 ms.
+- **`whisper-small` is noticeably weaker on an AirPods microphone.** The same
+  sentence went from "The deployment failed at midnight" on the built-in mic to
+  "The deployment fell at midnight" over AirPods. That is narrowband audio meeting
+  the smallest model in the catalogue, not a capture fault — the sample counts
+  show the audio arrived intact. It is the clearest argument yet for D6's
+  unfinished business: one default cannot serve every microphone either, and
+  a user on a headset may want `large-v3-turbo` despite the latency.
+  The noise floor on AirPods measured 0.0019 against 0.0192 built-in, where the
+  absolute floor correctly clamped the threshold to 0.012.
+
+Things that test found, all fixed:
 
 - **The microphone opened 2084 ms after key-down**, so the first two seconds of
   the utterance were spoken into a microphone that was not open. The bulk was
