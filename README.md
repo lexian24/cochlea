@@ -24,12 +24,13 @@
 > hand, and six defects that only a person could find were fixed doing it
 > ([macos/TESTING.md](macos/TESTING.md)).
 >
-> **It does not learn yet.** The adaptation engine is built and tested —
-> correction store, correction/revision filter, phonetic matching, importers,
-> lexicon and contextual biasing, evaluation harness, training orchestration,
-> 217 tests. You can seed a lexicon from your own writing today and the
-> recogniser will use it. What is missing is the loop that closes it: the app
-> has no way to capture a correction, so nothing feeds back automatically.
+> **It collects; it does not train yet.** Import your own writing and the
+> recogniser is biased towards it immediately — no training involved. Press
+> the fix shortcut after a mistake and the correction is repaired in place and
+> filed, with the revision filter deciding whether it was a mishearing or a
+> change of mind. What is missing is the last step: nothing on this machine
+> trains a model on those corrections. The evaluation harness that will gate
+> that training is built and tested; the trainer is not.
 >
 > **Not shipped.** No signed build, so a release you did not compile yourself
 > would be refused by Gatekeeper. Build it from source, or wait.
@@ -198,7 +199,7 @@ dictate doctor                   # paste this into a bug report
 | | Milestone | State |
 |---|---|---|
 | **M0** | Competitive dictation, zero learning | ASR, hotkey, mic and injector all verified by hand (T1–T7); streaming and latch activation unproven (T9–T10) |
-| **M1** | Correction capture | engine built, no UI (needs M0) |
+| **M1** | Correction capture | fix-last panel and store wired end to end (D11); review queue still CLI-only |
 | **M2** | Lexicon and biasing | **wired end to end** — import → lexicon.json → biased decode, phrases included (D10); no feedback loop until M1 |
 | **M3** | Evaluation harness — gates all training | **built** |
 | **M4** | Post-correction LM | replay buffer, resource gate, rebuild built; needs an MLX trainer |

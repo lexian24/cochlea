@@ -55,11 +55,17 @@ public final class TextInjector {
         }
     }
 
-    /// F18: live streaming mode cannot revise already-typed text.
+    /// Take back characters this app typed.
     ///
-    /// Backspacing to correct would break terminals and send-on-enter chat
-    /// boxes, so this exists to be *called only* in commit-on-release mode,
-    /// where nothing has been typed yet.
+    /// F18 forbids using this to revise text *automatically*, and the
+    /// reasoning holds: backspacing breaks terminals and submits half-finished
+    /// messages in chat boxes that send on Enter. Nothing in the dictation
+    /// path calls it.
+    ///
+    /// Fix-last does, and the difference is consent and immediacy. The user
+    /// asked by name, seconds after the text appeared, having been shown how
+    /// many characters will go. `DictationController.canReplaceLastUtterance`
+    /// is the bound on that; this function is only the mechanism.
     public func deleteBackward(count: Int) throws {
         guard AXIsProcessTrusted() else { throw InjectionError.notTrusted }
         let source = CGEventSource(stateID: .combinedSessionState)

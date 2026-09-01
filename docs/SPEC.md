@@ -897,6 +897,19 @@ than by argument, and each is recorded where the reasoning lives:
   (`dictate asr-check`). One machine is not enough to reverse
   [D1](DECISIONS.md), and the record says so. ([D6](DECISIONS.md))
 
+**M1 captures corrections.** The fix-last panel is built: one shortcut opens
+the last utterance, the correction is repaired in the user's document and
+filed through F1's three-signal filter, and the verdict is shown rather than
+swallowed — a quarantined correction and a revision look identical to "saved"
+otherwise. Repair by backspacing is squared with F18 in
+[D11](DECISIONS.md), which also records the bound the app cannot verify: it
+cannot see the document, so it withdraws the offer on time and on any
+intervening dictation rather than pretending to know the cursor has not moved.
+What M1 still owes is the review queue as a screen rather than a CLI command,
+and the capture-rate instrument — which cannot report anything until someone
+has used it for a while, and that is the number every downstream schedule
+estimate depends on.
+
 **M2's mechanism is now wired rather than argued.** `dictate import` writes a
 lexicon, `dictate asr-serve` loads it, and the decoder biases towards it —
 measured through the shipping path, not a scratch script: "gink's" becomes

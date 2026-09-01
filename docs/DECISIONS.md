@@ -585,3 +585,64 @@ user chose the file and there is no second party to exclude.
 still has no negative signal in the running system. That closes when correction
 capture (M1) lands, which is where the lexicon gets a second writer and the
 question of who owns the file has to be settled.
+
+---
+
+## D11 — Fix-last may take text back, under a bound it cannot verify
+
+**Date.** 2026-09-01. **Status.** Accepted.
+
+**Context.** SPEC §1 rules out watching text fields through the Accessibility
+API: fragile, breaks on every app update, and irreconcilable with the privacy
+positioning. The consequence is that an edit the user makes in their own
+document is invisible to this app, and corrections can only be captured
+through an explicit action. Fix-last is that action.
+
+The spec describes the panel as *reopening* the last utterance. It does not
+say whether accepting a correction should also repair the document, and that
+turns out to be the decision that determines whether anyone uses it. If the
+panel only records, the user fixes the same error twice — once in their
+document and once in a window — and the capture rate the whole project depends
+on goes to approximately zero. If it repairs, the correction is *cheaper* than
+fixing by hand, and it gets made.
+
+**So it repairs, by backspacing, and F18 has to be squared with that.** F18
+forbids revising already-typed text because backspacing breaks terminals and
+submits half-finished messages in chat boxes that send on Enter. That
+reasoning is about *automatic* revision — the app deciding on its own to
+rewrite something. Fix-last differs on every axis that made it dangerous: the
+user asked by name, seconds after the text appeared, and the panel states
+exactly how many characters will be deleted before they confirm. Nothing in
+the dictation path calls `deleteBackward`; only this does.
+
+**The bound is on how wrong it can be, not a check that it is right.** The app
+cannot see the document, so it cannot know whether the cursor moved. Two
+guards, both crude on purpose:
+
+- **Time.** Past `replaceWindowSeconds` (120 by default) the offer is
+  withdrawn. A correction made ten minutes later is being made somewhere else.
+- **Intervening dictation.** Any new utterance ends it, because the older text
+  is no longer what sits next to the cursor.
+
+When either fails, the panel still opens and still records — it just says why
+it will not touch the text and asks the user to fix it themselves. Recording
+never expires; only repair does.
+
+**Two buttons rather than a setting.** "Fix it and remember" and "Just
+remember it" are both present whenever repair is possible, because the app
+genuinely cannot tell which is safe and the user can. A preference would ask
+them to decide once, in the abstract, for a question whose answer changes
+every time.
+
+**Attribution stays in Python.** The panel calls `dictate correct`, which runs
+F1's three-signal filter and files the result. A Swift implementation would be
+a second copy of one rule, and two copies of a heuristic diverge. The verdict
+comes back and is shown: a quarantined correction is one the user will have to
+adjudicate and a revision is one that will never be trained on, and both look
+identical to "saved" if the app does not say so.
+
+**Carbon forced a refactor.** `RegisterEventHotKey` delivers every hotkey to
+the same installed handler, so two `HotkeyMonitor` instances would each fire on
+the other's presses — pressing fix-last would also start dictating. The events
+carry an `EventHotKeyID`; reading it is what tells them apart, and that means
+one monitor owning every shortcut rather than one per shortcut.

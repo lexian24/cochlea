@@ -37,6 +37,16 @@ public struct HotkeyBinding: Codable, Sendable, Equatable, Hashable {
     public static let `default` = HotkeyBinding(keyCode: 0x02,               // kVK_ANSI_D
                                                 modifiers: control | option)
 
+    /// Fix the last thing dictation typed.
+    ///
+    /// Deliberately one key away from the dictation shortcut, on the same
+    /// modifiers. The two are used seconds apart -- dictate, see the error,
+    /// fix it -- and a correction that costs a different chord is one people
+    /// do not make, which is exactly the capture-rate problem SPEC §1 warns
+    /// about.
+    public static let defaultFix = HotkeyBinding(keyCode: 0x03,             // kVK_ANSI_F
+                                                 modifiers: control | option)
+
     public var hasModifiers: Bool { modifiers != 0 }
 
     /// How the shortcut is written in the interface: ⌃⌥D.

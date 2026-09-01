@@ -187,9 +187,17 @@ struct ShortcutSettings: View {
         Form {
             Section {
                 HStack {
-                    Text("Dictation")
+                    Text("Dictate")
                     Spacer()
                     ShortcutRecorder(binding: $model.configuration.hotkey) { reason in
+                        rejection = reason
+                    }
+                    .frame(width: 150, height: 26)
+                }
+                HStack {
+                    Text("Fix what it just typed")
+                    Spacer()
+                    ShortcutRecorder(binding: $model.configuration.fixHotkey) { reason in
                         rejection = reason
                     }
                     .frame(width: 150, height: 26)
@@ -197,7 +205,7 @@ struct ShortcutSettings: View {
                 if let rejection {
                     Text(rejection).font(.callout).foregroundStyle(.red)
                 }
-                Text("Click the field, then press the combination you want. "
+                Text("Click a field, then press the combination you want. "
                    + "It applies immediately.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -220,6 +228,7 @@ struct ShortcutSettings: View {
         }
         .formStyle(.grouped)
         .onChange(of: model.configuration.hotkey) { _ in rejection = nil }
+        .onChange(of: model.configuration.fixHotkey) { _ in rejection = nil }
     }
 }
 
@@ -281,8 +290,7 @@ struct LearningSettings: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 Text("cochlea does not know your vocabulary until you give it "
-                   + "some. Import a file below, or make corrections once "
-                   + "correction capture exists.")
+                   + "some. Import a file below to get started.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
@@ -338,12 +346,34 @@ struct LearningSettings: View {
                + "you are idle and on power, and never while you are dictating.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            Text("What is missing first is a way to capture a correction, which "
-               + "needs the app, not the engine.")
+            Text("Corrections are being collected now: press "
+               + "\(model.configuration.fixHotkey.displayString) after "
+               + "dictation types something wrong. What is still missing is "
+               + "the part that trains on them.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            HStack {
+                Button("Show what has been collected") { showStore() }
+                Spacer()
+            }
         } header: {
             Text("When does it train?").font(.headline)
+        }
+    }
+
+    /// Reveal the correction store rather than summarising it in the window.
+    ///
+    /// The store is SQLite and human-inspectable on purpose (SPEC §1.3), and
+    /// `dictate stats` and `dictate review` already report it properly.
+    /// Reimplementing either here would be a second, worse view of the same
+    /// data with no way to act on it.
+    private func showStore() {
+        let store = model.configuration.home
+            .appendingPathComponent("corrections.db")
+        if FileManager.default.fileExists(atPath: store.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([store])
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([model.configuration.home])
         }
     }
 

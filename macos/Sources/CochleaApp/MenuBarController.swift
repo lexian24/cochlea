@@ -22,6 +22,7 @@ public final class MenuBarController {
     private let backendItem = NSMenuItem(title: "starting…", action: nil, keyEquivalent: "")
     private let eventItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let shortcutItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let fixItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
 
     public var onQuit: (() -> Void)?
     public var onTogglePauseLearning: ((Bool) -> Void)?
@@ -44,7 +45,9 @@ public final class MenuBarController {
 
     /// The shortcut and how it behaves, so the menu answers "what do I press?"
     /// without opening Settings.
-    public func describeShortcut(_ shortcut: String, activation: String) {
+    public func describeShortcut(_ shortcut: String, activation: String,
+                                 fix: String? = nil) {
+        if let fix { fixItem.title = "Fix the last one: \(fix)" }
         let how: String
         switch activation {
         case "holdToTalk": how = "hold"
@@ -84,7 +87,9 @@ public final class MenuBarController {
         backendItem.isEnabled = false
         eventItem.isEnabled = false
         shortcutItem.isEnabled = false
+        fixItem.isEnabled = false
         menu.addItem(shortcutItem)
+        menu.addItem(fixItem)
         menu.addItem(backendItem)
         menu.addItem(eventItem)
         menu.addItem(.separator())

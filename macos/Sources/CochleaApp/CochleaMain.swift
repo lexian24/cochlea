@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController?
     private var controller: DictationController?
     private var settings: SettingsWindowController?
+    private var correction: CorrectionPanelController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -75,11 +76,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = SettingsWindowController(configuration: configuration) { [weak controller, weak menuBar] updated in
             controller?.apply(configuration: updated)
             menuBar?.describeShortcut(updated.hotkey.displayString,
-                                      activation: updated.activation.rawValue)
+                                      activation: updated.activation.rawValue,
+                                      fix: updated.fixHotkey.displayString)
         }
         menuBar.onOpenSettings = { settings.show() }
+
+        // Fix-last (SPEC §1): the primary and, for now, only way a correction
+        // is captured. Nothing watches the user's document, so a fix made
+        // there is invisible; this is the explicit action that replaces it.
+        // Captured by value: the home directory and the identifier do not
+        // change for the life of the process, and capturing `self` to reach
+        // them would keep the delegate alive through the panel.
+        let home = configuration.home
+        let backendIdentifier = transcriber.identifier
+        let correction = CorrectionPanelController(
+            home: home
+        ) { [weak controller, weak menuBar] corrected, replace in
+            guard let controller, let last = controller.lastUtterance else { return }
+            let latency = last.ageMillis
+            if replace {
+                do {
+                    try controller.replaceLastUtterance(with: corrected)
+                } catch {
+                    menuBar?.describeEvent("could not fix the text: \(error)")
+                }
+            }
+            Task { @MainActor in
+                do {
+                    let verdict = try await CorrectionRecorder.record(
+                        hypothesis: last.hypothesis,
+                        final: corrected,
+                        latencyMillis: latency,
+                        appBundleIdentifier: last.appBundleIdentifier,
+                        model: backendIdentifier,
+                        home: home)
+                    // The verdict is worth surfacing, not swallowing: a
+                    // quarantined correction is one the user will have to
+                    // adjudicate, and a revision is one that will never be
+                    // trained on. Both look identical to "saved" otherwise.
+                    let summary = Self.describe(verdict)
+                    menuBar?.describeEvent(summary)
+                    Diagnostics.log("correct", summary)
+                } catch {
+                    menuBar?.describeEvent("correction not saved: \(error)")
+                    Diagnostics.log("correct", "not saved: \(error)")
+                }
+            }
+        }
+        controller.onFixLast = { [weak controller, weak correction] in
+            guard let controller else { return }
+            correction?.show(utterance: controller.lastUtterance,
+                             canReplace: controller.canReplaceLastUtterance)
+        }
+        self.correction = correction
         menuBar.describeShortcut(configuration.hotkey.displayString,
-                                 activation: configuration.activation.rawValue)
+                                 activation: configuration.activation.rawValue,
+                                 fix: configuration.fixHotkey.displayString)
         self.settings = settings
 
         do {
@@ -91,6 +143,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         self.menuBar = menuBar
         self.controller = controller
+    }
+
+    /// One line saying what F1 made of a correction.
+    private static func describe(_ verdict: CorrectionRecorder.Verdict) -> String {
+        if verdict.needsReview {
+            return "saved for review — it does not look like an ASR error "
+                 + "(\(verdict.failed_signals.joined(separator: ", ")))"
+        }
+        if !verdict.isTrainable {
+            return "saved, but read as a rewrite rather than a mishearing, so "
+                 + "it will not be trained on"
+        }
+        return "correction saved"
     }
 
     func applicationWillTerminate(_ notification: Notification) {

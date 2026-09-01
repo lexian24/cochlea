@@ -243,3 +243,31 @@ final class ModelResolverTests: XCTestCase {
             "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"))
     }
 }
+
+/// Fix-last's configuration, which a config written by an older build will
+/// not carry.
+final class CorrectionConfigurationTests: XCTestCase {
+
+    func testTheFixShortcutSurvivesARoundTrip() throws {
+        var config = Configuration(home: URL(fileURLWithPath: "/tmp/x"))
+        config.fixHotkey = HotkeyBinding(keyCode: 0x11, modifiers: HotkeyBinding.command)
+        let data = try JSONEncoder().encode(config)
+        let decoded = try JSONDecoder().decode(Configuration.self, from: data)
+        XCTAssertEqual(decoded.fixHotkey, config.fixHotkey)
+    }
+
+    func testAnOlderConfigTakesTheFixDefaults() throws {
+        // Every key is optional so a config from a build that predates
+        // fix-last applies what it does say rather than being discarded.
+        let decoded = try JSONDecoder().decode(
+            Configuration.self, from: Data("{\"latencyBudgetMillis\": 250}".utf8))
+        XCTAssertEqual(decoded.fixHotkey, .defaultFix)
+        XCTAssertEqual(decoded.replaceWindowSeconds, 120)
+    }
+
+    func testTheReplaceWindowIsConfigurable() throws {
+        let decoded = try JSONDecoder().decode(
+            Configuration.self, from: Data("{\"replaceWindowSeconds\": 30}".utf8))
+        XCTAssertEqual(decoded.replaceWindowSeconds, 30)
+    }
+}

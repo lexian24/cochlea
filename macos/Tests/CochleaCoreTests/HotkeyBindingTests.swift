@@ -77,3 +77,24 @@ final class ActivationTests: XCTestCase {
         XCTAssertEqual(decoded.hotkey, .default)
     }
 }
+
+/// Fix-last needs a second binding, and the two must not collide by default.
+final class FixHotkeyTests: XCTestCase {
+
+    func testTheFixShortcutIsOneKeyFromDictation() {
+        // Used seconds apart -- dictate, see the error, fix it. A correction
+        // that costs a different chord is one people do not make, which is the
+        // capture-rate problem SPEC §1 warns about.
+        XCTAssertEqual(HotkeyBinding.default.modifiers, HotkeyBinding.defaultFix.modifiers)
+        XCTAssertNotEqual(HotkeyBinding.default.keyCode, HotkeyBinding.defaultFix.keyCode)
+    }
+
+    func testTheDefaultsRenderAsTheyDoInTheMenu() {
+        XCTAssertEqual(HotkeyBinding.default.displayString, "⌃⌥D")
+        XCTAssertEqual(HotkeyBinding.defaultFix.displayString, "⌃⌥F")
+    }
+
+    func testTheFixShortcutIsUsable() {
+        XCTAssertTrue(HotkeyBinding.defaultFix.isUsable)
+    }
+}

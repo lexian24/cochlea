@@ -1,3 +1,4 @@
+import AppKit
 import CochleaASR
 import CochleaAudio
 import CochleaCore
@@ -68,6 +69,43 @@ public final class DictationController {
     public private(set) var lastEvent: String = "ready"
     public var onEventChange: ((String) -> Void)?
 
+    /// The fix-last shortcut was pressed.
+    public var onFixLast: (() -> Void)?
+
+    /// What was typed last, and where, so it can be corrected.
+    ///
+    /// SPEC §1 rules out watching text fields through the Accessibility API —
+    /// fragile, breaks on every app update, and irreconcilable with the
+    /// privacy positioning. So the app knows exactly one thing about the
+    /// user's document: what it put there itself. That is what this holds, and
+    /// it is the entire basis on which a correction can be offered.
+    public struct LastUtterance: Sendable {
+        public let hypothesis: String
+        /// What actually reached the cursor, after joining. Replacing text
+        /// means deleting this many characters, not the transcript's.
+        public let injected: String
+        public let injectedAt: Date
+        public let appBundleIdentifier: String?
+
+        /// How long ago the text was typed, which is F1's latency signal.
+        public var ageMillis: Int { Int(Date().timeIntervalSince(injectedAt) * 1000) }
+    }
+
+    public private(set) var lastUtterance: LastUtterance?
+
+    /// Whether the app can still safely take back what it typed.
+    ///
+    /// It cannot see the user's document, so this is a bound on how wrong it
+    /// can be rather than a check that it is right: deleting characters at a
+    /// cursor that has moved deletes the wrong ones. Dictating again ends it,
+    /// because the older text is no longer what is next to the cursor, and so
+    /// does time — a correction offered ten minutes later is being made
+    /// somewhere else entirely.
+    public var canReplaceLastUtterance: Bool {
+        guard let last = lastUtterance, !isCapturing else { return false }
+        return last.ageMillis <= configuration.replaceWindowSeconds * 1000
+    }
+
     /// The detector's state at the moment it decided, not afterwards.
     private func describeDecision() -> String {
         let floor = segmenter.decisionNoiseFloor
@@ -88,15 +126,23 @@ public final class DictationController {
     }
 
     public func start() throws {
-        hotkey.onPress = { [weak self] in
+        hotkey.onPress = { [weak self] action in
+            guard action == .dictate else {
+                if action == .fixLast {
+                    Task { @MainActor in self?.onFixLast?() }
+                }
+                return
+            }
             Diagnostics.log("hotkey", "key down")
             Task { @MainActor in await self?.handlePress() }
         }
-        hotkey.onRelease = { [weak self] in
+        hotkey.onRelease = { [weak self] action in
+            guard action == .dictate else { return }
             Diagnostics.log("hotkey", "key up")
             Task { @MainActor in await self?.handleRelease() }
         }
-        try hotkey.register(configuration.hotkey)
+        try hotkey.register([.dictate: configuration.hotkey,
+                             .fixLast: configuration.fixHotkey])
         Diagnostics.banner([
             "transcriber: \(transcriber.identifier)",
             "model dir:   \(configuration.modelsDirectory.appendingPathComponent(configuration.modelIdentifier).path)",
@@ -104,6 +150,7 @@ public final class DictationController {
             "accessibility: \(AccessibilityPermission.isTrusted() ? "granted" : "not yet granted")",
             "language:    \(configuration.language ?? "auto-detect")",
             "hotkey:      \(configuration.hotkey.displayString) (\(configuration.activation.rawValue))",
+            "fix last:    \(configuration.fixHotkey.displayString)",
             "output:      \(configuration.mode == .liveStreaming ? "streamed at each pause" : "committed when you stop")",
         ])
 
@@ -145,8 +192,12 @@ public final class DictationController {
     public func apply(configuration new: Configuration) {
         let wasListening = isCapturing
         configuration = new
-        if case .failure(let error) = hotkey.rebind(to: new.hotkey) {
+        if case .failure(let error) = hotkey.rebind(.dictate, to: new.hotkey) {
             note("hotkey", "could not use \(new.hotkey.displayString): \(error)")
+        }
+        if case .failure(let error) = hotkey.rebind(.fixLast, to: new.fixHotkey) {
+            note("hotkey", "could not use \(new.fixHotkey.displayString) "
+               + "for fixing: \(error)")
         }
         if wasListening { Task { await endListening() } }
         note("settings", "shortcut \(new.hotkey.displayString), "
@@ -404,6 +455,13 @@ public final class DictationController {
             let text = joiner.join(postProcess(result.text))
             if let text, !text.isEmpty {
                 try injector.type(text)
+                lastUtterance = LastUtterance(
+                    hypothesis: result.text.trimmingCharacters(
+                        in: .whitespacesAndNewlines),
+                    injected: text,
+                    injectedAt: Date(),
+                    appBundleIdentifier: NSWorkspace.shared
+                        .frontmostApplication?.bundleIdentifier)
                 note("inject", "typed \(text.count) characters in "
                    + "\(result.inferenceMillis) ms")
             } else {
@@ -434,6 +492,30 @@ public final class DictationController {
         // saying so is better than pretending a layer exists.
         return text
     }
+
+    /// Take back the last thing typed and put `text` there instead.
+    ///
+    /// Backspacing is what F18 forbids for *automatic* revision, and the
+    /// reasoning holds: it breaks terminals and submits half-finished messages
+    /// in chat boxes that send on Enter. What makes this different is that the
+    /// user asked for it, by name, seconds after the text appeared, having
+    /// been told exactly how many characters will be deleted. An explicit,
+    /// bounded, immediately-verifiable action is not the same failure as the
+    /// app silently rewriting text it typed a minute ago.
+    public func replaceLastUtterance(with text: String) throws {
+        guard let last = lastUtterance else { return }
+        try injector.deleteBackward(count: last.injected.count)
+        try injector.type(text)
+        lastUtterance = LastUtterance(
+            hypothesis: last.hypothesis,
+            injected: text,
+            injectedAt: last.injectedAt,
+            appBundleIdentifier: last.appBundleIdentifier)
+        note("correct", "replaced \(last.injected.count) characters")
+    }
+
+    /// Forget the last utterance, as when a correction has been filed.
+    public func clearLastUtterance() { lastUtterance = nil }
 
     public var latencyReport: (warm: Int?, cold: Int?) {
         (latency.warmMedianMillis, latency.coldMedianMillis)

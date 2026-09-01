@@ -102,6 +102,20 @@ public struct Configuration: Codable, Sendable {
     /// hardcoded Control-Option-D did not.
     public var hotkey: HotkeyBinding = .default
 
+    /// Opens the last utterance for correction.
+    public var fixHotkey: HotkeyBinding = .defaultFix
+
+    /// How long after typing the app will still offer to take text back.
+    ///
+    /// It cannot see the user's document (SPEC §1 rules out watching text
+    /// fields through the Accessibility API), so it cannot know whether the
+    /// cursor has moved. This is a bound on how wrong it can be rather than a
+    /// check that it is right: a correction offered ten minutes later is being
+    /// made somewhere else entirely, and deleting characters there deletes the
+    /// wrong ones. Recording the correction is always offered; only taking the
+    /// text back expires.
+    public var replaceWindowSeconds: Int = 120
+
     /// F18 latency budget, in milliseconds, for a typical utterance.
     public var latencyBudgetMillis: Int = 1000
 
@@ -121,7 +135,7 @@ public struct Configuration: Codable, Sendable {
         case mode, modelIdentifier, keepModelResident
         case acousticRetentionEnabled, latencyBudgetMillis, language
         case activation, tapThresholdMillis, maximumUtteranceSeconds
-        case hotkey
+        case hotkey, fixHotkey, replaceWindowSeconds
     }
 
     public init(from decoder: Decoder) throws {
@@ -147,6 +161,10 @@ public struct Configuration: Codable, Sendable {
         maximumUtteranceSeconds = try values.decodeIfPresent(
             Int.self, forKey: .maximumUtteranceSeconds) ?? maximumUtteranceSeconds
         hotkey = try values.decodeIfPresent(HotkeyBinding.self, forKey: .hotkey) ?? hotkey
+        fixHotkey = try values.decodeIfPresent(
+            HotkeyBinding.self, forKey: .fixHotkey) ?? fixHotkey
+        replaceWindowSeconds = try values.decodeIfPresent(
+            Int.self, forKey: .replaceWindowSeconds) ?? replaceWindowSeconds
     }
 
     public init(home: URL? = nil) {

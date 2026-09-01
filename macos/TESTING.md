@@ -93,8 +93,8 @@ open questions.
 | **T5** VAD / mic closes | **Passes after a fix.** Silence now ends the utterance mid-hold and the text is typed before release. See below. |
 | **T6** device change | **Passes after a fix.** Switching the input device to AirPods mid-session is detected, the graph is rebuilt on the next press, and dictation continues. Previously it hung the app. |
 
-Every core test above now passes on this machine. **T8 through T11 have never
-been run** — T9, T10 and T11 cover behaviour that did not exist when the first
+Every core test above now passes on this machine. **T8 through T12 have never
+been run** — T9 through T12 cover behaviour that did not exist when the first
 hand-test happened.
 
 Two observations that are not bugs but are worth knowing:
@@ -365,6 +365,64 @@ Worth reporting either way:
   use constantly? That is the more interesting failure.
 - **The minus button** next to an entry should remove it, and the change
   should survive a relaunch.
+
+---
+
+## T12 — Fixing what it got wrong
+
+The point of the whole project, and the last thing standing between "a
+dictation app" and "a dictation app that adapts". Never hand-tested.
+
+Dictate a sentence containing a word you know it gets wrong — a name, a tool,
+a piece of jargon. Then, **immediately**, press `⌃⌥F`.
+
+1. A small panel should appear with what it heard, already selected for
+   editing, and the keyboard focus in it.
+2. Correct the wrong word. The panel should say how many characters it will
+   delete.
+3. Press **Fix it and remember** (or just Enter).
+
+What should happen: the wrong text disappears from your document and the
+corrected text replaces it, and the menu bar's last-event line says the
+correction was saved.
+
+Then check it landed:
+
+```sh
+dictate stats                  # utterances, and how many are trainable
+dictate review                 # anything F1 could not classify
+```
+
+The interesting cases, and what each should do:
+
+- **A genuine mishearing** ("nginx" heard as "gink's"), fixed within a few
+  seconds → recorded as a *correction*, counted as trainable.
+- **A change of mind** — dictate something, then use the panel to rewrite it
+  into a completely different sentence → recorded as a *revision* and never
+  trained on. The menu should say so. This is F1 doing its job; if a rewrite
+  comes back as a correction, that is a real bug and the most valuable thing
+  you could find here.
+- **Something in between** — a fix that is neither obviously a mishearing nor
+  obviously a rewrite → *quarantined*, and it should show up in
+  `dictate review`.
+
+Then the safety guards:
+
+- **Wait three minutes** after dictating, then press `⌃⌥F`. The panel should
+  open but refuse to touch the text, explaining that it cannot tell whether
+  your cursor moved. "Remember it" should still work.
+- **Dictate twice, then press `⌃⌥F`.** It should offer to fix the *second*
+  utterance, not the first.
+- **Press `⌃⌥F` with nothing dictated yet.** It should beep, not crash.
+- **Move your cursor elsewhere, then fix.** It will delete the wrong
+  characters — that is expected and is why the panel warns you. Try it in a
+  scratch document, and tell me whether the warning is clear enough to stop
+  you doing it by accident.
+
+One thing to watch specifically: `⌃⌥D` and `⌃⌥F` are registered together now.
+**Pressing `⌃⌥F` must not start dictation**, and pressing `⌃⌥D` must not open
+the panel. If they cross over, the hotkey identity is not being read
+correctly.
 
 ---
 
