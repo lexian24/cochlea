@@ -315,9 +315,25 @@ with checksum verification and a resumable transfer. **M0.**
 This is a hard blocker for non-CLI distribution and costs money (Apple Developer
 Program membership) plus notarization setup.
 
-**Mitigation:** resolve before M0 ships. If unsigned initially, document the
-override path honestly and prominently. Do not pretend it is not friction.
-**Before M0 ships.**
+**Resolved by scoping, not by paying.** 2026-09-02: the membership is a
+recurring cost this project has decided against, so there is no signed build
+and no cask. The distribution model is **build from source**, which works
+because a locally compiled app is never quarantined — Gatekeeper only refuses
+what was downloaded.
+
+That is documented plainly rather than dressed up: the README says it, the
+cask says it, and `docs/TROUBLESHOOTING.md` answers the question someone will
+ask when a downloaded build refuses to open. What is deliberately *not*
+documented is an override path — telling people to strip the quarantine
+attribute from a downloaded binary teaches a habit that is dangerous
+everywhere else, and this project is not going to be the one that teaches it.
+
+The cost is real and named: fewer users, because building from source is a
+filter. The audience is "technically comfortable" (§1), which is the only
+reason this trade is available at all.
+
+[docs/RELEASING.md](RELEASING.md) keeps the full signing runbook in case the
+decision is revisited. **Closed.**
 
 #### F23 — Licensing on models and data
 
@@ -741,7 +757,7 @@ modes it is supposed to close.
 | F19 | Model load time on first invocation | M0 † |
 | F20 | Training competes with the user's work | M4 |
 | F21 | Homebrew formula cannot ship a 1.6GB model | M0 |
-| F22 | Gatekeeper blocks unsigned app | before M0 ships |
+| F22 | Gatekeeper blocks unsigned app | closed — build from source (2026-09-02) |
 | F23 | Licensing on models and data | before any community adapter ships |
 | F24 | Scope | M0 |
 | F25 | Lexicon fills with words the model already knows | M2 |

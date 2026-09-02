@@ -83,9 +83,11 @@ Six defects that only a person at a real keyboard could find:
 
 ### Known limitations
 
-- **The app is unsigned**, so a build you did not compile yourself is blocked
-  by Gatekeeper. `brew install --cask` is not honest until that is fixed
-  (F22).
+- **The app is built from source.** Shipping a downloadable build needs an
+  Apple Developer Program membership so it can be signed and notarized, and
+  that recurring cost has been decided against — so there is no cask, and
+  there is not going to be one (F22). Compiling it yourself works and always
+  will, because a locally built app is never quarantined.
 - **Nothing trains a model yet.** The evaluation harness that will gate
   training is built and tested; the trainer is not.
 - **The review queue is CLI-only** (`dictate review`).

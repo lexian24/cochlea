@@ -137,7 +137,12 @@ Two things that stood here as blockers are done: checksum pinning under D2
 ([D4](DECISIONS.md)), and the capture path, which has now been exercised by a
 person end to end ([macos/TESTING.md](../macos/TESTING.md)).
 
-## F22 — what signing actually takes
+## F22 — signing, and why this project does not do it
+
+**Decided 2026-09-02: not happening.** The membership is a recurring annual
+cost, and the distribution model is build-from-source instead. Everything
+below is kept because the reasoning is worth having written down and because
+the decision could be revisited — not because it is planned.
 
 There is no way around it, and the alternatives were checked rather than
 assumed. Comparable projects pay: [Vorssaint](https://github.com/vorssaintapp/vorssaint-utils),
@@ -158,7 +163,7 @@ re-prompts unpredictably across rebuilds, which is why
 [macos/TESTING.md](../macos/TESTING.md) documents `tccutil reset` at all. A
 signed app is granted once.
 
-### The steps, for the day the membership exists
+### The steps, if the decision is ever revisited
 
 1. **Enrol** in the Apple Developer Program (99 USD/year).
 2. **Create a Developer ID Application certificate** in the developer portal,

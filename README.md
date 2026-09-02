@@ -55,11 +55,14 @@ pip install 'cochlea[asr]'      # mlx-whisper
 dictate asr-check my.wav --model ~/.cochlea/models/whisper-small
 ```
 
-The menu bar app is **not** packaged yet: it needs signing and notarization
-(F22) before `brew install --cask` would be honest — Gatekeeper blocks an
-unsigned download, and it is strictest with exactly the two permissions
-cochlea needs. Build it from source in the meantime, which works today
-because a locally compiled app is not quarantined:
+The menu bar app is **built from source**, and that is the distribution model
+rather than a stopgap. Shipping a downloadable app means an Apple Developer
+Program membership so it can be signed and notarized — Gatekeeper blocks an
+unsigned download, and is strictest with exactly the two permissions cochlea
+needs. That is a recurring cost this project is not taking on.
+
+Building it yourself works today and always will, because a locally compiled
+app is never quarantined:
 
 ```sh
 Tools/setup-testing.sh          # builds, signs ad-hoc, unquarantines
@@ -81,9 +84,10 @@ Installing a formula straight from a URL no longer works — Homebrew requires
 formulae to live in a tap, and rejects both a URL and a local path. The tap
 above is the supported route.
 
-`brew install --cask cochlea` will install the menu bar app once there is one.
-[`Casks/cochlea.rb`](Casks/cochlea.rb) records what that needs. See
-[docs/RELEASING.md](docs/RELEASING.md).
+There is no cask. [`Casks/cochlea.rb`](Casks/cochlea.rb) is kept as a record of
+what one would need, and [docs/RELEASING.md](docs/RELEASING.md) has the full
+signing runbook — both are there in case the decision is ever revisited, not
+because it is planned.
 
 </details>
 

@@ -7,24 +7,27 @@
 #   1. [done] macos/ compiles, runs, and has been hand-tested end to end --
 #      hotkey, microphone, transcription, typing at the cursor, streaming,
 #      corrections. See macos/TESTING.md.
-#   2. [BLOCKING] F22 -- an Apple Developer ID signature and notarization.
+#   2. [NOT PLANNED] F22 -- an Apple Developer ID signature and notarization.
 #      Gatekeeper blocks an unsigned app, and it is strictest with exactly the
 #      permissions this one needs: Accessibility and Microphone. A cask that
 #      installs an unsigned app is a broken install for every user who did not
 #      compile it themselves, and telling people to run `xattr -dr
 #      com.apple.quarantine` on a downloaded binary teaches a habit that is
 #      dangerous everywhere else.
-#      This needs an Apple Developer Program membership (99 USD/year). It is a
-#      purchase, not a patch.
+#      This needs an Apple Developer Program membership at 99 USD/year, and
+#      that recurring cost has been decided against. It is a purchase, not a
+#      patch, so no amount of work here changes it.
 #   3. [blocked on 2] A tagged release carrying a signed, notarized .dmg.
 #
-# Until then, building from source is the honest path and works today: a
-# locally compiled app is not quarantined, so Gatekeeper does not block it.
+# So there is no cask, and this file is a record rather than a plan. Building
+# from source is the distribution model, and it works: a locally compiled app
+# is never quarantined, so Gatekeeper does not block it.
 #   https://github.com/lexian24/cochlea/blob/main/macos/BUILDING.md
 #
-# Once 2 and 3 hold, `brew install --cask cochlea` works from this
-# repository's tap. Acceptance into homebrew-cask (so the tap is unnecessary)
-# additionally requires meeting their notability threshold.
+# Kept, rather than deleted, because the shape is right and the decision could
+# be revisited -- docs/RELEASING.md carries the steps. If it ever is, note that
+# Homebrew 6 also requires `brew trust` for a cask from a third-party tap, and
+# that acceptance into homebrew-cask proper needs their notability threshold.
 cask "cochlea" do
   version "0.0.0"
   sha256 :no_check

@@ -43,8 +43,9 @@ a malformed frame do more than close the connection, is in scope.
 
 ## What is not in scope
 
-- **The app is unsigned.** Gatekeeper blocking it is the intended behaviour,
-  not a vulnerability. See [F22](docs/SPEC.md) — signing is an open item.
+- **The app is unsigned, by decision.** Gatekeeper blocking a downloaded
+  build is the intended behaviour, not a vulnerability — the app is meant to
+  be compiled from source. See [F22](docs/SPEC.md).
 - **A user granting Accessibility to a build they compiled themselves.** That
   is what building from source means.
 - **Model output quality.** A mistranscription is a bug, not a vulnerability,

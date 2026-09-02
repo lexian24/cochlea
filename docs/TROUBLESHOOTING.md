@@ -108,8 +108,10 @@ cannot happen.
 
 ## The app will not open — "cochlea is damaged" or "cannot be opened"
 
-You downloaded a build rather than compiling one. The app is not signed yet
-(F22), so Gatekeeper refuses it. Build from source:
+You downloaded a build rather than compiling one. The app is not signed and
+is not going to be — signing needs a paid Apple Developer membership, which
+this project has decided against (F22) — so Gatekeeper refuses anything you
+did not compile. Build from source:
 
 ```sh
 git clone https://github.com/lexian24/cochlea && cd cochlea
@@ -149,9 +151,9 @@ checkout. That bug shipped once and CI was the only thing that caught it.
 
 ## brew install did not give me the app
 
-It is not supposed to. The formula installs the `dictate` CLI only; the menu
-bar app needs signing before a cask is honest. See
-[RELEASING.md](RELEASING.md).
+It is not supposed to. The formula installs the `dictate` CLI only, and there
+is no cask — the app is built from source. See [RELEASING.md](RELEASING.md)
+for why.
 
 ## Starting over
 
